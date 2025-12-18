@@ -1,0 +1,191 @@
+.pageWrapper {
+  position: relative;
+  overflow: hidden;
+}
+
+.deco1 {
+  position: absolute;
+  top: -15%;
+  left: -5%;
+  width: 500px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.deco2 {
+  position: absolute;
+  bottom: 55%;
+  right: 0%;
+  width: 300px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.deco3 {
+  position: absolute;
+  top: 60%;
+  left: 80%;
+  width: 500px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.deco4 {
+  position: absolute;
+  bottom: 50%;
+  right: 85%;
+  width: 300px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  font-family: 'Manrope', sans-serif;
+  background-color: #e0f2e9;
+}
+
+.title {
+  font-size: 2.5rem;
+  color: #064420;
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.section {
+  margin-bottom: 3rem;
+  background-color: #ffffff;
+  padding: 2rem;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  border: solid 2px #064420; 
+  box-sizing: border-box; 
+}
+
+.section h2 {
+  color: #064420;
+  font-size: 1.8rem;
+  margin-bottom: 1.5rem;
+}
+
+.section p {
+  color: #000;
+}
+
+.teamGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2rem;
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+}
+
+.teamMember {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.teamMemberSection h2 {
+  color: #064420;
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+  text-align: center;
+
+}
+
+.memberPhoto {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin: 0 auto 1rem auto;
+  background-color: #787878;
+}
+
+.photoPlaceholder {
+  width: 100%;
+  height: 100%;
+  background-color: #e0f2e9;
+}
+
+.teamMember p {
+  color: #000;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.memberDetails {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  margin-top: 1rem;
+}
+
+.professorsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+  margin-top: 2rem;
+  margin-bottom: 2rem;
+}
+
+.professorMember {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.professorPhoto {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin: 0 auto 1rem auto;
+  background-color: #787878;
+}
+
+.professorPlaceholder {
+  width: 100%;
+  height: 100%;
+  background-color: #e0f2e9;
+}
+
+.professorMember h3 {
+  color: #064420;
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.professorMember p {
+  color: #000;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.professorDetails {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  margin-top: 1rem;
+}
+
+@media (max-width: 768px) {
+  .teamGrid {
+    grid-template-columns: 1fr;
+  }
+  .professorsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+

@@ -1,0 +1,163 @@
+.pageWrapper {
+  position: relative;
+  overflow: hidden;
+}
+
+.deco1 {
+  position: absolute;
+  top: -5%;
+  left: 0%;
+  width: 500px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.deco2 {
+  position: absolute;
+  bottom: -5%;
+  right: 0%;
+  width: 300px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.deco3 {
+  position: absolute;
+  top: 50%;
+  left: 5%;
+  width: 500px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.deco4 {
+  position: absolute;
+  bottom: 60%;
+  right: 0%;
+  width: 300px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container {
+  position: relative;
+  z-index: 1;
+
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  font-family: 'Manrope', sans-serif;
+}
+
+.title {
+  font-size: 2.5rem;
+  color: #064420;
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.section {
+  margin-bottom: 3rem;
+  background-color: #ffffff;
+  padding: 2rem;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+.section h2 {
+  color: #064420;
+  font-size: 1.8rem;
+  margin-bottom: 1rem;
+}
+.section p {
+  color: #333;
+  line-height: 1.6;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+}
+
+.statCard {
+  background-color: #e0f2e9;
+  padding: 1.5rem;
+  border-radius: 8px;
+  text-align: center;
+  margin: 2rem 0;
+}
+.statValue {
+  font-size: 3rem;
+  font-weight: 700;
+  color: #064420;
+}
+.statLabel {
+  color: #064420;
+  font-size: 1.2rem;
+  margin-top: 0.5rem;
+}
+.statsGrid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.articlesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.articleCard {
+  background-color: #e6f4ea;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  text-align: center;
+
+  display: flex;
+  flex-direction: column;
+}
+
+.articleImage {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-top-left-radius: 0.5rem;
+  border-top-right-radius: 0.5rem;
+}
+
+.articleTitle {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0.25rem;
+}
+
+.articleSource {
+  font-size: 0.875rem;
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.articlePreview {
+  font-size: 0.875rem;
+  flex-grow: 1; 
+  margin-bottom: 1rem;
+}
+
+.articleAction {
+  margin-top: auto;
+  display: flex;
+  justify-content: center;
+}
+
+
+.articleButton {
+  background-color: #045d32;
+  color: #fff;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  text-decoration: none;
+  font-weight: 500;
+  transition: background-color 0.2s ease;
+}
+.articleButton:hover {
+  background-color: #024927;
+}

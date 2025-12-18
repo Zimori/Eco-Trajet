@@ -1,0 +1,54 @@
+# Node.js
+node_modules
+bun.lock
+.next
+
+# Environnement
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+package-lock.json
+yarn.lock
+
+# Jest
+coverage/
+.jest-cache
+
+# Next.js
+.next/
+out/
+dist/
+build/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# IDE
+.vscode
+.idea
+.DS_Store
+*.swp
+*.swo
+*~
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Testing
+cypress/videos
+cypress/screenshots
+
+# Cache
+.cache
+.eslintcache
+
+# Production
+.vercel

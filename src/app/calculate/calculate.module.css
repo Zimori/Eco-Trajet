@@ -1,0 +1,357 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;700&display=swap');
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  background-color: #e0f2e9;
+  font-family: 'Manrope', sans-serif;
+  padding: 20px;
+  min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+.title {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #000;
+}
+
+.subtitle {
+  font-size: 1.2rem;
+  color: #064420;
+  margin-top: 10px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 20px;
+  width: 100%;
+  max-width: 400px; 
+}
+
+.inputWrapper {
+  position: relative;
+  width: 100%;
+}
+
+.inputField {
+  padding: 12px;
+  font-size: 1rem;
+  border: 2px solid #064420;
+  border-radius: 5px;
+  width: 100%;
+  color: #000; 
+  background-color: #fff;
+}
+
+.inputField:focus {
+  border-color: #043017;
+  outline: none;
+}
+
+.inputWithButton {
+  display: flex;
+  width: 100%;
+  margin-bottom: 1rem;
+  position: relative;
+}
+
+.inputWithButton .inputWrapper {
+  flex: 1;
+}
+
+.searchButton {
+  width: 50px;
+  height: auto;
+  border: none;
+  background-color: #064420;
+  color: white;
+  font-size: 1.2rem;
+  cursor: pointer;
+  border-radius: 0 5px 5px 0;
+  margin-left: -1px;
+  transition: background-color 0.2s;
+}
+
+.searchButton:hover {
+  background-color: #043017;
+}
+
+.searchButton:disabled {
+  background-color: #8a8a8a;
+  cursor: wait;
+}
+
+/* Styles liste de suggestions */
+
+.suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: white;
+  border: 1px solid #ccc;
+  border-radius: 0 0 5px 5px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  z-index: 1001;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.suggestionItem {
+  padding: 10px 15px;
+  cursor: pointer;
+  text-align: left;
+  border-bottom: 1px solid #f0f0f0;
+  color: #222; 
+  font-weight: 500; 
+  transition: background-color 0.15s ease;
+}
+
+.suggestionItem:last-child {
+  border-bottom: none;
+}
+
+.suggestionItem:hover {
+  background-color: #e0f2e9;
+}
+
+/* Nouvel style pour l'indicateur de chargement */
+.loadingItem {
+  padding: 10px 15px;
+  text-align: center;
+  color: #666;
+  font-size: 0.9rem;
+  font-style: italic;
+  background-color: #f9f9f9;
+}
+
+/* Nouvel style pour le message d'absence de résultats */
+.noResults {
+  padding: 10px 15px;
+  text-align: center;
+  color: #999;
+  font-size: 0.9rem;
+  background-color: #f9f9f9;
+}
+
+.button {
+  padding: 12px 20px;
+  font-size: 1.2rem;
+  color: white;
+  background-color: #064420;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+.button:hover {
+  background-color: #043017;
+}
+
+.result {
+  font-size: 1.5rem;
+  margin-top: 20px;
+  color: #333;
+}
+
+.mapContainer {
+  width: 100%;
+  max-width: 800px;
+  height: 400px;
+  margin-top: 30px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 2px solid #064420;
+}
+
+/* Styles pour les trucs de déco */
+
+.deco1 {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  width: 150px;
+  height: auto;
+  z-index: -1;
+}
+
+.deco2 {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  width: 150px;
+  height: auto;
+  z-index: -1;
+}
+
+/* Styles résultats du calcul */
+
+.resultsContainer {
+  background-color: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 20px;
+  margin: 20px 0;
+  width: 100%;
+  max-width: 900px;
+}
+
+.resultsTitle {
+  color: #064420;
+  font-size: 1.5rem;
+  margin-bottom: 15px;
+  text-align: center;
+}
+
+.resultsGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.resultItem {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  padding: 24px 20px 16px 20px;
+  min-width: 220px;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  transition: box-shadow 0.2s, border 0.2s;
+  border: 2px solid transparent;
+}
+
+.resultItem:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.13);
+  border: 2px solid #1b8a5a;
+}
+
+.bestRoute {
+  border: 2px solid #1b8a5a;
+  box-shadow: 0 4px 16px rgba(27,138,90,0.13);
+}
+
+.resultLabel {
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-bottom: 8px;
+  color: #1b8a5a;
+}
+
+.resultValue {
+  font-size: 1rem;
+  margin-bottom: 4px;
+  color: #222;
+}
+
+.bestBadge {
+  background: #1b8a5a;
+  color: #fff;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  padding: 2px 10px;
+  margin-top: 8px;
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.showStepsButton {
+  margin-top: 10px;
+  background: #e0f2e9;
+  color: #064420;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 16px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.showStepsButton:hover {
+  background: #b6e2d3;
+}
+
+.stepsContainer {
+  margin: 32px auto 0 auto;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+  padding: 24px 24px 16px 24px;
+  max-width: 600px;
+}
+
+.stepsTitle {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #064420;
+  margin-bottom: 18px;
+  text-align: left;
+}
+
+.stepsList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.stepItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 0 14px 0;
+  border-bottom: 1px solid #e0f2e9;
+  font-size: 1.08rem;
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.stepItem:last-child {
+  border-bottom: none;
+}
+
+.stepMode {
+  min-width: 70px;
+  color: #fff;
+  background: #064420;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-align: center;
+  margin-right: 8px;
+  display: inline-block;
+}
+
+.stepDesc {
+  flex: 1;
+  color: #222;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+}
+
+.stepDuration {
+  color: #064420;
+  font-weight: 700;
+  margin-left: 12px;
+  font-size: 0.98rem;
+  background: #e0f2e9;
+  border-radius: 5px;
+  padding: 2px 8px;
+  display: inline-block;
+}
