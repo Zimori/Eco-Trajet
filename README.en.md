@@ -128,8 +128,5 @@ The application builds successfully with no ESLint or TypeScript errors.
 
 ## Contributors
 
-- [REDACTED] Team
+- Team MIF10-G04-2024
 
-## License
-
-ISC
