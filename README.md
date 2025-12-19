@@ -1,3 +1,5 @@
+🇫🇷 **Français** | 🇬🇧 [**English**](./README.en.md)
+
 # EcoTrajet - Calculateur d'Empreinte Carbone pour Trajets
 
 ## Description
