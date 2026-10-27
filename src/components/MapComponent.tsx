@@ -57,10 +57,13 @@ interface MapComponentProps {
 
 function getModeColor(mode: string): string {
   switch (mode) {
-    case 'walk': return '#43a047'; // vert
+    case 'train': return '#2e7d32'; // rail backend: vert
     case 'car': return '#1976d2'; // bleu
-    case 'bus': return '#d32f2f'; // rouge
-    case 'train': return '#ff9800'; // orange
+    case 'bus': return '#1976d2';
+    case 'walk': return '#1976d2';
+    case 'rail': return '#2e7d32';
+    case 'Multimodal': return '#1976d2';
+    case 'default': return '#1976d2';
     case 'plane': return '#8e24aa'; // violet
     case 'bike': return '#388e3c'; // vert foncé
     case 'wait': return '#757575'; // gris
@@ -97,7 +100,7 @@ export default function MapComponent({
           polyline = [lastPoint, step.to];
         }
         if (polyline && polyline.length >= 2) {
-          const isSimulated = ['train', 'plane', 'bus'].includes(step.mode);
+          const isSimulated = false;
           segs.push({ polyline, color, isSimulated, mode: step.mode, description: step.description });
           lastPoint = polyline[polyline.length - 1];
         }

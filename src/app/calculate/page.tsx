@@ -64,6 +64,7 @@ export default function CalculatePage() {
   const [loadingDeparture, setLoadingDeparture] = useState<boolean>(false);
   const [loadingDestination, setLoadingDestination] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
   const [selectedDeparture, setSelectedDeparture] = useState<Suggestion | null>(null);
   const [selectedDestination, setSelectedDestination] = useState<Suggestion | null>(null);
   const [routeSteps, setRouteSteps] = useState<Step[]>([]);
@@ -203,6 +204,7 @@ export default function CalculatePage() {
       setRouteSteps([]);
       setAllRoutes([]);
       setBestRouteType("");
+      setRouteError(null);
       if (!selectedDeparture || !selectedDestination) return;
       try {
         setLoading(true);
@@ -223,6 +225,11 @@ export default function CalculatePage() {
         setBestRouteType(routes[0]?.label || "");
       } catch (error) {
         console.error("Une erreur s'est produite lors du calcul de l'itinéraire :", error);
+        setRouteError(
+          error instanceof Error
+            ? error.message
+            : "Le backend de routage est indisponible.",
+        );
       } finally {
         setLoading(false);
       }
@@ -348,6 +355,14 @@ export default function CalculatePage() {
           </button>
         </div>
       </div>
+
+      {routeError && (
+        <div className={styles.resultsContainer} role="alert">
+          <h2 className={styles.resultsTitle}>Unable to calculate the route</h2>
+          <p>{routeError}</p>
+          <p>Please check that the local routing backend is running.</p>
+        </div>
+      )}
 
       {routeInfo && (
         <div className={styles.resultsContainer}>

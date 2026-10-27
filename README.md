@@ -100,6 +100,46 @@ L'application utilise des facteurs d'émission basés sur les données de l'ADEM
    npm start
    ```
 
+### Backend multimodal
+
+Le backend FastAPI se trouve dans `backend/` et attend les trois artefacts de
+données suivants :
+
+- `data/ademe_base_empreinte.parquet`
+- `data/sncf_stations.geojson`
+- `data/sncf_stations_network.json` (graphe NetworkX au format node-link)
+
+Les chemins peuvent être personnalisés avec `ADEME_DATASET_PATH`,
+`STATIONS_DATASET_PATH` et `RAIL_GRAPH_PATH`. Une fois les données installées :
+
+```bash
+python -m pip install -r backend/requirements.txt
+uvicorn app.main:app --app-dir backend --reload --port 8000
+```
+
+Le healthcheck est disponible sur `GET http://localhost:8000/health`.
+L'API de calcul est exposée sur
+`POST http://localhost:8000/api/v1/routing/multimodal`.
+
+Pour peupler les données localement :
+
+```bash
+make seed
+# Sans réseau, pour une démo reproductible :
+python backend/scripts/seed_data.py --offline-demo
+```
+
+Le seed normalise l'export officiel SNCF, génère la table de facteurs ADEME
+versionnée et construit le graphe node-link NetworkX. Les fichiers générés sont
+ignorés par Git afin d'éviter de versionner des artefacts volumineux.
+
+### Contrat agent
+
+Le schéma OpenAI Function Calling est disponible sur
+`GET /api/v1/agent-tools/schema`. Le contrat nomme la fonction
+`calculate_multimodal_trip` et impose les coordonnées de départ/arrivée ainsi
+que la préférence `fastest` ou `lowest_carbon`.
+
 ## Fonctionnalités
 
 - Autocomplétion des adresses de départ et d'arrivée
