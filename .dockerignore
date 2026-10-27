@@ -1,0 +1,8 @@
+.git
+.next
+node_modules
+coverage
+backend/data/*.parquet
+backend/data/*.geojson
+backend/data/*.json
+*.log

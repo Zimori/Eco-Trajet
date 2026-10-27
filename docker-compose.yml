@@ -1,0 +1,35 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      ROUTING_DATA_DIR: /app/data
+      ADEME_DATABASE_VERSION: Base Carbone V23 (2024)
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/data:/app/data
+    command: >
+      sh -c 'if [ ! -f /app/data/ademe_base_empreinte.parquet ] ||
+      [ ! -f /app/data/sncf_stations.geojson ] ||
+      [ ! -f /app/data/sncf_stations_network.json ]; then
+      python scripts/seed_data.py; fi &&
+      uvicorn app.main:app --host 0.0.0.0 --port 8000'
+
+  frontend:
+    image: node:20-bookworm-slim
+    working_dir: /workspace
+    environment:
+      NEXT_PUBLIC_ROUTING_API_URL: http://localhost:8000/api/v1/routing/multimodal
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/workspace
+      - frontend_node_modules:/workspace/node_modules
+    command: sh -c "npm install && npm run dev -- --hostname 0.0.0.0"
+    depends_on:
+      - backend
+
+volumes:
+  frontend_node_modules:
