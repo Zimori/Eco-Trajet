@@ -1,160 +1,131 @@
-🇫🇷 **Français** | 🇬🇧 [**English**](./README.en.md)
+# EcoTrajet
 
-# EcoTrajet - Calculateur d'Empreinte Carbone pour Trajets
+EcoTrajet is a small multimodal routing service. It takes coordinates, matches nearby stations, calculates the road part with OSRM, computes the rail part with a NetworkX graph, and returns distance, duration and CO2 values.
 
-## Description
+## What is in the repo
 
-EcoTrajet est une application web permettant aux utilisateurs de calculer et comparer l'empreinte carbone de leurs déplacements en fonction du mode de transport choisi. L'application offre une interface intuitive avec autocomplétion des adresses, calcul d'itinéraire et visualisation cartographique.
+- Next.js frontend for a simple dashboard and map
+- FastAPI backend for routing and data checks
+- OSRM for road routing
+- NetworkX for the rail graph
+- GeoPandas and Parquet for ADEME emission factors and station matching
 
-## Technologies Utilisées
+## Runtime data
 
-### Frontend
-- **Next.js** : Framework React pour le rendu côté serveur et le routage
-- **React** : Bibliothèque JavaScript pour construire l'interface utilisateur
-- **TypeScript** : Superset de JavaScript ajoutant le typage statique
-- **CSS Modules** : Pour le styling avec isolation des styles
+The backend expects these files to be present:
 
-### Cartographie
-- **Leaflet** : Bibliothèque JavaScript open-source pour les cartes interactives
-- **React Leaflet** : Composants React pour Leaflet
-- **Leaflet-GeoSearch** : Composant pour l'autocomplétion des adresses dans Leaflet
+- `backend/data/ademe_base_empreinte.parquet`
+- `backend/data/sncf_stations.geojson`
+- `backend/data/sncf_stations_network.json`
 
-### APIs Externes
-- **OpenStreetMap** : Fournit les données cartographiques de base
-- **Nominatim** : Service de géocodage pour convertir les adresses en coordonnées géographiques
-- **OSRM** (Open Source Routing Machine) : API pour le calcul d'itinéraires entre deux points
+They are produced by `backend/scripts/seed_data.py`.
 
-## Dépendances Principales
+## API
+
+### GET /health
+
+Returns a JSON status object.
+
+```bash
+curl --noproxy "*" -sS http://127.0.0.1:8000/health | jq .
+```
+
+The normal response is:
 
 ```json
 {
-  "dependencies": {
-    "axios": "^x.x.x",               // Client HTTP pour les requêtes API
-    "leaflet": "^1.x.x",             // Bibliothèque de cartographie
-    "leaflet-geosearch": "^3.x.x",   // Autocomplétion d'adresses
-    "next": "^14.x.x",               // Framework Next.js
-    "react": "^18.x.x",              // Bibliothèque React
-    "react-dom": "^18.x.x",          // Rendu React dans le DOM
-    "react-leaflet": "^4.x.x"        // Composants React pour Leaflet
-  }
+  "status": "healthy",
+  "datasets_loaded": true,
+  "version": "1.0.0"
 }
 ```
 
-## Structure de l'Application
+If the data files are missing, the app returns a 503 response with a JSON payload instead of crashing.
 
-- `/src/app` : Pages et composants de l'application
-  - `/calculate` : Page de calcul d'itinéraire et d'empreinte carbone
-- `/src/components` : Composants réutilisables
-  - `MapComponent.tsx` : Composant de carte pour afficher les itinéraires
-  - `Header.tsx` : En-tête de l'application
-- `/src/lib` : Services et utilitaires
-  - `routeService.js` : Service pour le calcul d'itinéraires et d'émissions CO2
-  - `db.js` : Service pour la connexion à la base de données
-- `/public` : Ressources statiques, images
+### POST /api/v1/routing/multimodal
 
-## APIs Utilisées
-
-### 1. API Nominatim
-- **Fournisseur** : OpenStreetMap
-- **Utilisation** : Convertit les noms de lieux en coordonnées géographiques (latitude/longitude)
-- **Endpoint** : `https://nominatim.openstreetmap.org/search`
-- **Limites** : Max 1 requête par seconde, nécessite un User-Agent personnalisé
-
-### 2. API OSRM
-- **Fournisseur** : Project OSRM
-- **Utilisation** : Calcule les itinéraires entre deux points avec distance et durée
-- **Endpoint** : `https://router.project-osrm.org/route/v1/{profile}/{coordinates}`
-- **Formats supportés** : Formats GeoJSON pour la géométrie des itinéraires
-
-## Calcul des Émissions CO2
-
-L'application utilise des facteurs d'émission basés sur les données de l'ADEME (Agence de l'environnement et de la maîtrise de l'énergie) :
-
-- **Voiture** : 218 g CO2/km (thermique)
-- **Bus** : 113 g CO2/km (thermique)
-- **Train** : 2.93 g CO2/km (TGV)
-- **Avion** : 259 g CO2/km (court courrier)
-- **Vélo/Marche** : 0 g CO2/km (émissions directes)
-
-## Installation et Démarrage
-
-1. **Cloner le dépôt** :
-   ```bash
-   git clone <url-du-repository>
-   cd mif10-g04-2024
-   ```
-
-2. **Installer les dépendances** :
-   ```bash
-   npm install
-   ```
-
-3. **Lancer le serveur de développement** :
-   ```bash
-   npm run dev
-   ```
-
-4. **Construire pour la production** :
-   ```bash
-   npm run build
-   npm start
-   ```
-
-### Backend multimodal
-
-Le backend FastAPI se trouve dans `backend/` et attend les trois artefacts de
-données suivants :
-
-- `data/ademe_base_empreinte.parquet`
-- `data/sncf_stations.geojson`
-- `data/sncf_stations_network.json` (graphe NetworkX au format node-link)
-
-Les chemins peuvent être personnalisés avec `ADEME_DATASET_PATH`,
-`STATIONS_DATASET_PATH` et `RAIL_GRAPH_PATH`. Une fois les données installées :
+This route accepts a trip request and returns a multimodal itinerary.
 
 ```bash
+curl --noproxy "*" -sS \
+  -X POST http://127.0.0.1:8000/api/v1/routing/multimodal \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "origin": {"lat": 48.8566, "lon": 2.3522},
+    "destination": {"lat": 45.7640, "lon": 4.8357},
+    "preferences": {"max_walking_distance": 1500, "comfort": "standard"}
+  }'
+```
+
+The result contains route segments, totals, and metadata.
+
+### GET /api/v1/agent-tools/schema
+
+This endpoint exposes the tool schema for an agent.
+
+```bash
+curl --noproxy "*" -sS http://127.0.0.1:8000/api/v1/agent-tools/schema
+```
+
+The generated schema includes the `calculate_multimodal_trip` function with `origin_lat`, `origin_lon`, `dest_lat`, `dest_lon`, and `preference`.
+
+## Local setup
+
+### Backend
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
 python -m pip install -r backend/requirements.txt
-uvicorn app.main:app --app-dir backend --reload --port 8000
+python backend/scripts/seed_data.py --offline-demo
+PYTHONPATH=backend uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Le healthcheck est disponible sur `GET http://localhost:8000/health`.
-L'API de calcul est exposée sur
-`POST http://localhost:8000/api/v1/routing/multimodal`.
+Use `--noproxy "*"` when a network proxy rewrites `localhost` calls.
 
-Pour peupler les données localement :
+### Frontend
 
 ```bash
-make seed
-# Sans réseau, pour une démo reproductible :
-python backend/scripts/seed_data.py --offline-demo
+npm install
+npm run dev
 ```
 
-Le seed normalise l'export officiel SNCF, génère la table de facteurs ADEME
-versionnée et construit le graphe node-link NetworkX. Les fichiers générés sont
-ignorés par Git afin d'éviter de versionner des artefacts volumineux.
+### Docker
 
-### Contrat agent
+```bash
+make run
+# or
+docker compose up --build
+```
 
-Le schéma OpenAI Function Calling est disponible sur
-`GET /api/v1/agent-tools/schema`. Le contrat nomme la fonction
-`calculate_multimodal_trip` et impose les coordonnées de départ/arrivée ainsi
-que la préférence `fastest` ou `lowest_carbon`.
+## Data pipeline
 
-## Fonctionnalités
+The project keeps data local and explicit:
 
-- Autocomplétion des adresses de départ et d'arrivée
-- Calcul d'itinéraire entre deux points
-- Affichage de la distance et la durée du trajet
-- Calcul des émissions CO2 selon le mode de transport
-- Visualisation de l'itinéraire sur une carte interactive
-- Interface réactive et intuitive
+- ADEME factors are stored as Parquet
+- station metadata is stored as GeoJSON
+- the rail graph is stored as a NetworkX node-link JSON
 
-## Limitations
+This avoids a heavier database layer for the first version and keeps the routing pipeline readable.
 
-- Les facteurs d'émission sont des moyennes et ne prennent pas en compte des variables comme le modèle de véhicule ou le taux d'occupation
-- L'itinéraire pour les bus et les trains utilise le même calcul que pour les voitures (limitation de l'API OSRM)
-- La précision des données dépend de la qualité des données OpenStreetMap
+## Engineering choices
 
-## Contributeurs
+The rail graph is intentionally compact. A full national rail network would be much larger and slower to load. The current graph focuses on main corridors and major hubs so route resolution stays fast and predictable.
 
-- Équipe MIF10-G04-2024
+The ADEME data is also local. The project turns the source values into a Parquet file so lookup stays cheap and does not depend on a remote service.
+
+## Tests
+
+The backend tests live under `backend/tests`.
+
+```bash
+PYTHONPATH=backend python -m pytest backend/tests
+```
+
+The frontend uses Jest and needs Node/npm installed in the environment.
+
+## Limits
+
+- This is not a full national railway model.
+- The routing graph is intentionally simplified for speed and determinism.
+- The service is built for route calculation and carbon estimates rather than a full transport data warehouse.
