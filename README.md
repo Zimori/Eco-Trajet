@@ -1,3 +1,5 @@
+**English** | [Français](./README.fr.md)
+
 # EcoTrajet
 
 EcoTrajet is a small multimodal routing service. It takes coordinates, matches nearby stations, calculates the road part with OSRM, computes the rail part with a NetworkX graph, and returns distance, duration and CO2 values.
