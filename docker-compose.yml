@@ -9,13 +9,16 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      - ./backend/app:/app/app
+      - ./backend/scripts:/app/scripts
       - ./backend/data:/app/data
     command: >
       sh -c 'if [ ! -f /app/data/ademe_base_empreinte.parquet ] ||
       [ ! -f /app/data/sncf_stations.geojson ] ||
       [ ! -f /app/data/sncf_stations_network.json ]; then
       python scripts/seed_data.py; fi &&
-      uvicorn app.main:app --host 0.0.0.0 --port 8000'
+      uvicorn app.main:app --host 0.0.0.0 --port 8000
+      --reload --reload-dir /app/app'
 
   frontend:
     image: node:20-bookworm-slim
