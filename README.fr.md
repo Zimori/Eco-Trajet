@@ -100,6 +100,10 @@ make run
 docker compose up --build
 ```
 
+La configuration Compose démarre les deux services. Le frontend surveille le
+volume du projet et le backend surveille `backend/app`; une modification du
+code relance le serveur concerné. Arrêtez la stack avec `Ctrl-C`.
+
 ## Pipeline de données
 
 Le projet conserve les données localement et de façon explicite :

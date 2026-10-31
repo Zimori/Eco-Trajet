@@ -100,6 +100,10 @@ make run
 docker compose up --build
 ```
 
+The Compose setup starts both services. The frontend watches the project
+volume, and the backend watches `backend/app`; source changes restart the
+corresponding development server. Stop the stack with `Ctrl-C`.
+
 ## Data pipeline
 
 The project keeps data local and explicit:
