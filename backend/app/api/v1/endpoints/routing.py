@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import math
 import time
 from datetime import UTC, datetime
 from typing import Protocol
@@ -11,6 +13,14 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from ....schemas.itinerary import (
+    CarbonMetrics,
+    ItineraryMetadata,
+    ItineraryResponse,
+    ScenarioSavings,
+    SegmentDetail,
+    TransportScenario,
+)
 from ....services.multimodal_engine import (
     ItineraryInputError,
     ItineraryResult,
@@ -18,6 +28,8 @@ from ....services.multimodal_engine import (
     RailRoutingError,
     RoadRoutingError,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ItineraryRequest(BaseModel):
@@ -42,40 +54,6 @@ class ItineraryRequest(BaseModel):
     origin: Coordinate
     destination: Coordinate
     preferences: Preferences = Field(default_factory=Preferences)
-
-
-class SegmentDetail(BaseModel):
-    """Serializable segment representation consumed by agents and clients."""
-
-    mode: str
-    distance_m: float = Field(ge=0)
-    duration_s: float = Field(ge=0)
-    co2_grams: float = Field(ge=0)
-    geometry: dict | None = None
-
-
-class CarbonMetrics(BaseModel):
-    """Aggregate distance, time and carbon metrics."""
-
-    distance_totale: float = Field(ge=0)
-    temps_total: float = Field(ge=0)
-    co2_total: float = Field(ge=0)
-
-
-class ItineraryMetadata(BaseModel):
-    timestamp: datetime
-    matching_reliability_score: float = Field(ge=0, le=1)
-    confidence_score: float = Field(ge=0, le=1)
-    ademe_database_version: str
-    execution_time_ms: float = Field(ge=0)
-
-
-class ItineraryResponse(BaseModel):
-    """Exhaustive itinerary response."""
-
-    segments: list[SegmentDetail]
-    totals: CarbonMetrics
-    metadata: ItineraryMetadata
 
 
 class AgentTripRequest(BaseModel):
@@ -174,19 +152,50 @@ def create_routing_router(
             started_at = time.perf_counter()
             origin = (request.origin.lat, request.origin.lon)
             destination = (request.destination.lat, request.destination.lon)
-            result = await routing_engine.resolve_full_multimodal_itinerary(
+            direct_thermal = await routing_engine.get_road_segment(origin, destination, "car")
+            direct_km = direct_thermal.distance_km
+            scenarios = await _build_scenarios(
+                routing_engine,
                 origin,
                 destination,
+                direct_thermal,
                 max_walking_distance=request.preferences.max_walking_distance,
             )
-            return _to_response(
-                result,
+            recommended_id = _select_recommended_scenario(
+                scenarios, direct_km
+            )
+            scenarios = [
+                scenario.model_copy(
+                    update={"is_recommended": scenario.id == recommended_id}
+                )
+                for scenario in scenarios
+            ]
+            selected = next(
+                scenario for scenario in scenarios if scenario.id == recommended_id
+            )
+            response = _scenario_response(
+                selected,
                 routing_engine,
                 origin,
                 destination,
                 ademe_database_version,
                 (time.perf_counter() - started_at) * 1000,
             )
+            response.scenarios = scenarios
+            baseline = next(
+                scenario
+                for scenario in scenarios
+                if scenario.id == "car_thermal"
+            )
+            saved = max(0.0, baseline.co2_kg - selected.co2_kg)
+            response.savings = ScenarioSavings(
+                carbon_saved_kg=round(saved, 2),
+                carbon_saved_pct=round(
+                    saved / baseline.co2_kg * 100 if baseline.co2_kg else 0.0,
+                    1,
+                ),
+            )
+            return response
         except (ItineraryInputError, ValueError) as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         except (RoadRoutingError, RailRoutingError) as exc:
@@ -220,6 +229,8 @@ def create_routing_router(
                 destination,
                 max_walking_distance=request.preferences.max_walking_distance,
             )
+            if result is None:
+                raise RailRoutingError("No compatible rail hubs were found.")
         except (ValueError, ItineraryInputError) as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         except (RoadRoutingError, RailRoutingError) as exc:
@@ -259,6 +270,320 @@ async def _geocode_pair(
     )
 
 
+async def _build_scenarios(
+    engine: MultimodalRoutingEngine,
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+    direct_thermal,
+    *,
+    max_walking_distance: float | None,
+) -> list[TransportScenario]:
+    direct_km = direct_thermal.distance_km
+    scenarios = [
+        _road_scenario(
+            "car_thermal",
+            "Voiture thermique (Direct)",
+            "car",
+            direct_thermal,
+            0.218,
+            origin,
+            destination,
+        ),
+        _road_scenario(
+            "car_electric",
+            "Voiture électrique (Direct)",
+            "car",
+            direct_thermal,
+            0.103,
+            origin,
+            destination,
+        ),
+    ]
+
+    if direct_km < 3:
+        walk = await engine.get_road_segment(origin, destination, "foot")
+        bike = await engine.get_road_segment(origin, destination, "bike")
+        scenarios = [
+            _road_scenario("walk", "Marche à pied", "walk", walk, 0.0, origin, destination),
+            _road_scenario("bike", "Vélo", "bike", bike, 0.0, origin, destination),
+            *scenarios,
+        ]
+    elif direct_km < 20:
+        if direct_km < 10:
+            bike = await engine.get_road_segment(origin, destination, "bike")
+            scenarios.insert(
+                0, _road_scenario("bike", "Vélo", "bike", bike, 0.0, origin, destination)
+            )
+    else:
+        car_multimodal = await _try_multimodal_scenario(
+            engine,
+            origin,
+            destination,
+            access_mode="car",
+            scenario_id="multimodal",
+            name="Train + Accès route",
+            max_walking_distance=max_walking_distance,
+            direct_km=direct_km,
+        )
+        if car_multimodal:
+            scenarios.insert(0, car_multimodal)
+
+    carpool = _road_scenario(
+        "carpool",
+        "Covoiturage (3 pers.)",
+        "carpool",
+        direct_thermal,
+        0.218 / 3,
+        origin,
+        destination,
+    )
+    bus = _road_scenario(
+        "bus",
+        "Autocar longue distance",
+        "bus",
+        direct_thermal,
+        0.030,
+        origin,
+        destination,
+        duration_multiplier=1.25,
+    )
+    scenarios.extend((carpool, bus))
+    if direct_km > 250:
+        scenarios.append(
+            _flight_scenario(direct_thermal, origin, destination)
+        )
+
+    return scenarios
+
+
+async def _try_multimodal_scenario(
+    engine: MultimodalRoutingEngine,
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+    *,
+    access_mode: str,
+    scenario_id: str,
+    name: str,
+    max_walking_distance: float | None,
+    direct_km: float,
+    require_access_limit: bool = False,
+) -> TransportScenario | None:
+    try:
+        result = await engine.resolve_full_multimodal_itinerary(
+            origin,
+            destination,
+            max_walking_distance=max_walking_distance,
+            access_mode=access_mode,
+        )
+    except (ItineraryInputError, RailRoutingError, RoadRoutingError):
+        logger.exception(
+            "Multimodal scenario failed: id=%s access_mode=%s origin=%s destination=%s",
+            scenario_id,
+            access_mode,
+            origin,
+            destination,
+        )
+        return None
+    if result is None:
+        return None
+
+    if result.rail.station_origin_uic == result.rail.station_dest_uic:
+        return None
+    if require_access_limit and max_walking_distance is not None and (
+        result.access.distance_km * 1000 > max_walking_distance
+        or result.egress.distance_km * 1000 > max_walking_distance
+    ):
+        return None
+    response = _to_response(result, engine, origin, destination, "unknown", 0)
+    distance_km = response.totals.distance_totale / 1000
+    if distance_km > direct_km * 1.8:
+        return None
+    return TransportScenario(
+        id=scenario_id,
+        name=name,
+        mode="train",
+        distance_km=round(distance_km, 1),
+        duration_min=round(response.totals.temps_total / 60),
+        co2_kg=round(response.totals.co2_total / 1000, 2),
+        geometry=_ensure_geometry(
+            _merge_segment_geometries(response.segments), origin, destination
+        ),
+        steps=[segment.model_dump() for segment in response.segments],
+        segments=response.segments,
+    )
+
+
+def _road_scenario(
+    scenario_id: str,
+    name: str,
+    mode: str,
+    route,
+    factor_kg_per_km: float,
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+    duration_multiplier: float = 1.0,
+) -> TransportScenario:
+    geometry = _ensure_geometry(route.geometry, origin, destination)
+    segment = SegmentDetail(
+        mode=route.mode,
+        distance_m=round(route.distance_km * 1000),
+        duration_s=round(route.duration_minutes * duration_multiplier * 60),
+        co2_grams=round(route.distance_km * factor_kg_per_km * 1000, 1),
+        geometry=geometry,
+    )
+    return TransportScenario(
+        id=scenario_id,
+        name=name,
+        distance_km=round(route.distance_km, 1),
+        duration_min=round(route.duration_minutes * duration_multiplier),
+        co2_kg=round(segment.co2_grams / 1000, 2),
+        mode=mode,
+        geometry=geometry,
+        steps=[segment.model_dump()],
+        segments=[segment],
+    )
+
+
+def _flight_scenario(
+    route,
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+) -> TransportScenario:
+    distance_km = _great_circle_distance_km(origin, destination)
+    geometry = _ensure_geometry(None, origin, destination)
+    segment = SegmentDetail(
+        mode="flight",
+        distance_m=round(distance_km * 1000),
+        duration_s=9000,
+        co2_grams=round(distance_km * 0.259 * 1000, 1),
+        geometry=geometry,
+    )
+    return TransportScenario(
+        id="flight",
+        name="Avion (comparateur d'impact)",
+        mode="flight",
+        distance_km=round(distance_km, 1),
+        duration_min=150,
+        co2_kg=round(segment.co2_grams / 1000, 2),
+        geometry=geometry,
+        steps=[segment.model_dump()],
+        segments=[segment],
+    )
+
+
+def _great_circle_distance_km(
+    origin: tuple[float, float], destination: tuple[float, float]
+) -> float:
+    radius_km = 6371.0088
+    lat1, lon1 = map(math.radians, origin)
+    lat2, lon2 = map(math.radians, destination)
+    delta_lat = lat2 - lat1
+    delta_lon = lon2 - lon1
+    haversine = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2) ** 2
+    )
+    return radius_km * 2 * math.asin(math.sqrt(haversine))
+
+
+def _merge_segment_geometries(segments: list[SegmentDetail]) -> dict:
+    coordinates: list[list[float]] = []
+    for segment in segments:
+        geometry = segment.geometry
+        if not isinstance(geometry, dict):
+            continue
+        segment_coordinates = geometry.get("coordinates")
+        if not isinstance(segment_coordinates, list):
+            continue
+        for coordinate in segment_coordinates:
+            if not isinstance(coordinate, (list, tuple)) or len(coordinate) < 2:
+                continue
+            point = [float(coordinate[0]), float(coordinate[1])]
+            if coordinates and coordinates[-1] == point:
+                continue
+            coordinates.append(point)
+    return {"type": "LineString", "coordinates": coordinates}
+
+
+def _ensure_geometry(
+    geometry: dict | None,
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+) -> dict:
+    coordinates = geometry.get("coordinates") if isinstance(geometry, dict) else None
+    if isinstance(coordinates, list) and len(coordinates) >= 2:
+        return {"type": "LineString", "coordinates": coordinates}
+    return {
+        "type": "LineString",
+        "coordinates": [
+            [origin[1], origin[0]],
+            [destination[1], destination[0]],
+        ],
+    }
+
+
+def _select_recommended_scenario(
+    scenarios: list[TransportScenario], direct_km: float
+) -> str:
+    by_id = {scenario.id: scenario for scenario in scenarios}
+    thermal = by_id["car_thermal"]
+    if direct_km < 3:
+        bike = by_id.get("bike")
+        walk = by_id.get("walk")
+        if bike and walk:
+            return bike.id if bike.duration_min <= walk.duration_min else walk.id
+    if direct_km < 10 and "bike" in by_id:
+        bike = by_id["bike"]
+        if bike.duration_min <= thermal.duration_min * 1.5:
+            return bike.id
+    multimodal = by_id.get("multimodal")
+    if (
+        multimodal
+        and multimodal.co2_kg < thermal.co2_kg
+        and multimodal.duration_min <= thermal.duration_min
+    ):
+        return multimodal.id
+    walk_train = by_id.get("walk_train_walk")
+    if (
+        walk_train
+        and walk_train.co2_kg < thermal.co2_kg
+        and walk_train.duration_min <= thermal.duration_min * 1.5
+    ):
+        return walk_train.id
+    electric = by_id["car_electric"]
+    if electric.co2_kg < thermal.co2_kg:
+        return electric.id
+    return thermal.id
+
+
+def _scenario_response(
+    scenario: TransportScenario,
+    engine: MultimodalRoutingEngine,
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+    ademe_database_version: str,
+    execution_time_ms: float,
+) -> ItineraryResponse:
+    segments = scenario.segments or []
+    totals = CarbonMetrics(
+        distance_totale=round(sum(segment.distance_m for segment in segments)),
+        temps_total=round(sum(segment.duration_s for segment in segments)),
+        co2_total=round(sum(segment.co2_grams for segment in segments), 1),
+    )
+    reliability = _matching_reliability(engine, origin, destination)
+    return ItineraryResponse(
+        segments=segments,
+        totals=totals,
+        metadata=ItineraryMetadata(
+            timestamp=datetime.now(UTC),
+            matching_reliability_score=round(reliability, 3),
+            confidence_score=round(reliability, 3),
+            ademe_database_version=ademe_database_version,
+            execution_time_ms=round(execution_time_ms, 3),
+        ),
+    )
+
+
 def _to_response(
     result: ItineraryResult,
     engine: MultimodalRoutingEngine,
@@ -270,39 +595,33 @@ def _to_response(
     segments = [
         SegmentDetail(
             mode=result.access.mode,
-            distance_m=result.access.distance_km * 1000,
-            duration_s=result.access.duration_minutes * 60,
-            co2_grams=result.emissions[0].emissions_gco2e,
+            distance_m=round(result.access.distance_km * 1000.0, 0),
+            duration_s=round(result.access.duration_minutes * 60.0, 0),
+            co2_grams=round(result.emissions[0].emissions_gco2e, 1),
             geometry=result.access.geometry,
         ),
         SegmentDetail(
             mode="train",
-            distance_m=result.rail.distance_km * 1000,
-            duration_s=result.rail.duration_minutes * 60,
-            co2_grams=result.emissions[1].emissions_gco2e,
+            distance_m=round(result.rail.distance_km * 1000.0, 0),
+            duration_s=round(result.rail.duration_minutes * 60.0, 0),
+            co2_grams=round(result.emissions[1].emissions_gco2e, 1),
             geometry=result.rail.geometry,
         ),
         SegmentDetail(
             mode=result.egress.mode,
-            distance_m=result.egress.distance_km * 1000,
-            duration_s=result.egress.duration_minutes * 60,
-            co2_grams=result.emissions[2].emissions_gco2e,
+            distance_m=round(result.egress.distance_km * 1000.0, 0),
+            duration_s=round(result.egress.duration_minutes * 60.0, 0),
+            co2_grams=round(result.emissions[2].emissions_gco2e, 1),
             geometry=result.egress.geometry,
         ),
     ]
-    origin_match = engine.matcher.find_nearest_station(*origin)
-    destination_match = engine.matcher.find_nearest_station(*destination)
-    reliability = 1.0 - min(
-        1.0,
-        (float(origin_match["distance_km"]) + float(destination_match["distance_km"]))
-        / 60.0,
-    )
+    reliability = _matching_reliability(engine, origin, destination)
     return ItineraryResponse(
         segments=segments,
         totals=CarbonMetrics(
-            distance_totale=sum(item.distance_m for item in segments),
-            temps_total=sum(item.duration_s for item in segments),
-            co2_total=sum(item.co2_grams for item in segments),
+            distance_totale=round(sum(item.distance_m for item in segments), 0),
+            temps_total=round(sum(item.duration_s for item in segments), 0),
+            co2_total=round(sum(item.co2_grams for item in segments), 1),
         ),
         metadata=ItineraryMetadata(
             timestamp=datetime.now(UTC),
@@ -312,3 +631,18 @@ def _to_response(
             execution_time_ms=round(execution_time_ms, 3),
         ),
     )
+
+
+def _matching_reliability(
+    engine: MultimodalRoutingEngine,
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+) -> float:
+    origin_match = engine.matcher.find_nearest_station(*origin)
+    destination_match = engine.matcher.find_nearest_station(*destination)
+    if origin_match is None or destination_match is None:
+        return 0.0
+    distance_km = float(origin_match["distance_km"]) + float(
+        destination_match["distance_km"]
+    )
+    return round(1.0 - min(1.0, distance_km / 60.0), 3)
