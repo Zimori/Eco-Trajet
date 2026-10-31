@@ -3,21 +3,29 @@
 import { useState, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import styles from "./calculate.module.css";
-import { calculateMultimodalRoutes } from "@/lib/routeService";
+import {
+  calculateMultimodalRoutes,
+  formatSegmentTitle,
+} from "@/lib/routeService";
 import Image from "next/image";
 
-// Helpers pour l'affichage
-function capitalize(str: string) {
-  if (!str) return '';
-  return str.charAt(0).toUpperCase() + str.slice(1);
-}
+const MODE_LABELS: Record<string, string> = {
+  car: "Voiture",
+  carpool: "Covoiturage",
+  train: "Train",
+  bus: "Autocar",
+  flight: "Vol",
+  walk: "Marche",
+  bike: "Vélo",
+};
+
 function getModeIcon(mode: string) {
   switch (mode) {
     case 'walk': return '🚶';
     case 'car': return '🚗';
     case 'bus': return '🚌';
     case 'train': return '🚆';
-    case 'plane': return '✈️';
+    case 'flight': return '✈️';
     case 'bike': return '🚲';
     case 'wait': return '⏳';
     default: return '➡️';
@@ -52,6 +60,7 @@ interface RouteInfo {
   geometry: { coordinates: [number, number][] };
   steps?: Step[];
   label?: string; //accès à label
+  isRecommended?: boolean;
 }
 
 export default function CalculatePage() {
@@ -218,11 +227,14 @@ export default function CalculatePage() {
           lng: selectedDestination.x
         };
         const routes = await calculateMultimodalRoutes(departureCoords, destinationCoords);
+        if (routes.length === 0) {
+          throw new Error("Le backend n'a renvoyé aucun scénario.");
+        }
         setAllRoutes(routes);
-        // On affiche le plus rapide par défaut
-        setRouteInfo(routes[0]);
-        setRouteSteps(routes[0]?.steps || []);
-        setBestRouteType(routes[0]?.label || "");
+        const recommendedRoute = routes.find((route) => route.isRecommended) ?? routes[0];
+        setRouteInfo(recommendedRoute);
+        setRouteSteps(recommendedRoute?.steps || []);
+        setBestRouteType(recommendedRoute?.label || "");
       } catch (error) {
         console.error("Une erreur s'est produite lors du calcul de l'itinéraire :", error);
         setRouteError(
@@ -238,21 +250,30 @@ export default function CalculatePage() {
   }, [selectedDeparture, selectedDestination]);
 
   // Formatage data
+  const formatCarbon = (co2Grams: number) => {
+    if (co2Grams < 1000) {
+      return `${Math.round(co2Grams)} g CO₂`;
+    }
+    return `${(co2Grams / 1000).toFixed(2)} kg CO₂`;
+  };
+
   const formatDistance = (meters: number) => {
     return meters < 1000
-      ? `${meters} m`
+      ? `${Math.round(meters)} m`
       : `${(meters / 1000).toFixed(1)} km`;
   };
 
   const formatDuration = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-
-    if (hours > 0) {
-      return `${hours}h ${minutes}min`;
-    } else {
-      return `${minutes} min`;
+    const totalMinutes = Math.round(seconds / 60);
+    if (totalMinutes < 60) {
+      return `${totalMinutes} min`;
     }
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (minutes === 0) {
+      return `${hours}h`;
+    }
+    return `${hours}h ${minutes}min`;
   };
 
   return (
@@ -274,8 +295,8 @@ export default function CalculatePage() {
       />
 
       {/* Contenu principal */}
-      <h1 className={styles.title}>Calculate Your Carbon Footprint</h1>
-      <p className={styles.subtitle}>Compare CO₂ emissions for your trip</p>
+      <h1 className={styles.title}>Calculer l'empreinte carbone</h1>
+      <p className={styles.subtitle}>Comparez les émissions de CO₂ de votre trajet</p>
 
       <div className={styles.form}>
         {/* Champ de départ avec bouton de recherche */}
@@ -284,7 +305,7 @@ export default function CalculatePage() {
             <input
               type="text"
               className={styles.inputField}
-              placeholder="Departure"
+              placeholder="Départ"
               value={departure}
               onChange={handleDepartureChange}
               onBlur={() => handleBlur(true)}
@@ -358,31 +379,31 @@ export default function CalculatePage() {
 
       {routeError && (
         <div className={styles.resultsContainer} role="alert">
-          <h2 className={styles.resultsTitle}>Unable to calculate the route</h2>
+          <h2 className={styles.resultsTitle}>Impossible de calculer le trajet</h2>
           <p>{routeError}</p>
-          <p>Please check that the local routing backend is running.</p>
+          <p>Vérifiez que le backend local est démarré.</p>
         </div>
       )}
 
       {routeInfo && (
         <div className={styles.resultsContainer}>
-          <h2 className={styles.resultsTitle}>Route Information</h2>
+          <h2 className={styles.resultsTitle}>Informations sur le trajet</h2>
 
           <div className={styles.resultsGrid}>
             <div className={styles.resultItem}>
-              <span className={styles.resultLabel} data-testid="distance-label">Distance:</span>
+              <span className={styles.resultLabel} data-testid="distance-label">Distance :</span>
               <span className={styles.resultValue} data-testid="distance-value">{formatDistance(routeInfo.distance)}</span>
             </div>
 
             <div className={styles.resultItem}>
-              <span className={styles.resultLabel} data-testid="duration-label">Duration:</span>
+              <span className={styles.resultLabel} data-testid="duration-label">Durée :</span>
               <span className={styles.resultValue} data-testid="duration-value">{formatDuration(routeInfo.duration)}</span>
             </div>
 
             <div className={styles.resultItem}>
-              <span className={styles.resultLabel} data-testid="emissions-label">CO₂ Emissions:</span>
+              <span className={styles.resultLabel} data-testid="emissions-label">Émissions de CO₂ :</span>
               <span className={styles.resultValue} data-testid="emissions-value">
-                {routeInfo.co2Emissions} g
+                {formatCarbon(routeInfo.co2Emissions)}
               </span>
             </div>
           </div>
@@ -391,17 +412,9 @@ export default function CalculatePage() {
 
       {allRoutes.length > 0 && (
         <div className={styles.resultsContainer}>
-          <h2 className={styles.resultsTitle}>Compare transport scenarios</h2>
+          <h2 className={styles.resultsTitle}>Comparer les modes de transport</h2>
           <div className={styles.resultsGrid}>
-            {allRoutes.filter((route, idx, arr) => {
-              // Pour la voiture, n'afficher qu'une seule case "Car only" (pas les steps)
-              if (route.label === 'Car only') {
-                // On ne garde que la première occurrence
-                return arr.findIndex(r => r.label === 'Car only') === idx;
-              }
-              // Pour les autres, on garde tout
-              return true;
-            }).map((route, idx) => (
+            {allRoutes.map((route, idx) => (
               <div
                 key={idx}
                 className={
@@ -412,9 +425,9 @@ export default function CalculatePage() {
                 <span className={styles.resultLabel}>{route.label}</span>
                 <span className={styles.resultValue} data-testid="distance-value">{formatDistance(route.distance)}</span>
                 <span className={styles.resultValue} data-testid="duration-value">{formatDuration(route.duration)}</span>
-                <span className={styles.resultValue} data-testid="emissions-value">{route.co2Emissions} g CO₂</span>
-                {route.label === bestRouteType && (
-                  <span className={styles.bestBadge}>Selected mode</span>
+                <span className={styles.resultValue} data-testid="emissions-value">{formatCarbon(route.co2Emissions)}</span>
+                {route.isRecommended && (
+                  <span className={styles.bestBadge}>Mode recommandé</span>
                 )}
                 <button
                   className={styles.showStepsButton}
@@ -424,7 +437,7 @@ export default function CalculatePage() {
                     setBestRouteType(route.label || "");
                   }}
                 >
-                  Show steps
+                  Voir les étapes
                 </button>
               </div>
             ))}
@@ -441,26 +454,26 @@ export default function CalculatePage() {
           steps={routeSteps}
         />
       </div>
-      {/*  timeline, with duration and CO2 for each step */}
+      {/* Détail du trajet */}
       {routeSteps.length > 0 && (
         <div className={styles.stepsContainer}>
-          <h3 className={styles.stepsTitle}>Trip steps</h3>
+          <h3 className={styles.stepsTitle}>Étapes du trajet</h3>
           <ol className={styles.stepsList}>
             {/* Cas spécial pour Car only: une seule ligne récapitulative + déroulable */}
             {routeInfo?.label === 'Car only' ? (
               <li className={styles.stepItem}>
                 <details>
                   <summary>
-                    <span className={styles.stepMode}>{getModeIcon('car')} Car</span>
-                    <span className={styles.stepDesc}>Full car trip</span>
+                    <span className={styles.stepMode}>{getModeIcon('car')} Voiture</span>
+                    <span className={styles.stepDesc}>{formatSegmentTitle({ mode: 'car' }, 0, 1)}</span>
                     <span className={styles.stepDuration}>{formatDuration(routeInfo.duration)}</span>
-                    <span className={styles.stepCO2}>{routeInfo.co2Emissions} g CO₂</span>
+                    <span className={styles.stepCO2}>{formatCarbon(routeInfo.co2Emissions)}</span>
                   </summary>
                   <ol className={styles.stepsList}>
                     {routeSteps.map((step: Step, idx: number) => (
                       <li key={idx} className={styles.stepItem}>
                         <span className={styles.stepMode}>{getModeIcon('car')}</span>
-                        <span className={styles.stepDesc}>{step.description}{step.name ? ` (${step.name})` : ''}</span>
+                        <span className={styles.stepDesc}>{step.description || MODE_LABELS.car}{step.name ? ` (${step.name})` : ''}</span>
                         {step.duration && (
                           <span className={styles.stepDuration}>{formatDuration(step.duration)}</span>
                         )}
@@ -475,13 +488,15 @@ export default function CalculatePage() {
             ) : (
               routeSteps.map((step: Step, idx: number) => (
                 <li key={idx} className={styles.stepItem}>
-                  <span className={styles.stepMode}>{getModeIcon(step.mode)} {capitalize(step.mode)}</span>
-                  <span className={styles.stepDesc}>{step.description}</span>
+                  <span className={styles.stepMode}>{getModeIcon(step.mode)}</span>
+                  <span className={styles.stepDesc}>
+                    {step.description || MODE_LABELS[step.mode] || formatSegmentTitle({ mode: step.mode }, idx, routeSteps.length)}
+                  </span>
                   {step.duration && (
                     <span className={styles.stepDuration}>{formatDuration(step.duration)}</span>
                   )}
                   {step.co2 !== undefined && (
-                    <span className={styles.stepCO2}>{step.co2} g CO₂</span>
+                    <span className={styles.stepCO2}>{formatCarbon(step.co2)}</span>
                   )}
                 </li>
               ))

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { Fragment, useEffect, useState, useMemo } from "react";
 import { MapContainer, TileLayer, Polyline, Marker, Tooltip, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import styles from "./MapComponent.module.css";
@@ -55,19 +55,36 @@ interface MapComponentProps {
   steps?: Step[];
 }
 
+function toLeafletPositions(
+  geometry?: { coordinates?: unknown },
+): [number, number][] {
+  const rawCoords = geometry?.coordinates;
+  return Array.isArray(rawCoords)
+    ? rawCoords
+        .filter(
+          (coordinate): coordinate is [number, number] =>
+            Array.isArray(coordinate) &&
+            coordinate.length >= 2 &&
+            Number.isFinite(coordinate[0]) &&
+            Number.isFinite(coordinate[1]),
+        )
+        .map(([lon, lat]) => [lat, lon])
+    : [];
+}
+
 function getModeColor(mode: string): string {
   switch (mode) {
-    case 'train': return '#2e7d32'; // rail backend: vert
-    case 'car': return '#1976d2'; // bleu
-    case 'bus': return '#1976d2';
-    case 'walk': return '#1976d2';
-    case 'rail': return '#2e7d32';
-    case 'Multimodal': return '#1976d2';
-    case 'default': return '#1976d2';
-    case 'plane': return '#8e24aa'; // violet
-    case 'bike': return '#388e3c'; // vert foncé
-    case 'wait': return '#757575'; // gris
-    default: return '#064420';
+    case 'train': return '#7c3aed';
+    case 'flight': return '#94a3b8';
+    case 'car':
+    case 'carpool':
+    case 'bus':
+    case 'default':
+      return '#2563eb';
+    case 'walk':
+    case 'bike':
+      return '#2563eb';
+    default: return '#2563eb';
   }
 }
 
@@ -90,8 +107,9 @@ export default function MapComponent({
         const step = steps[i];
         const color = getModeColor(step.mode);
         let polyline: [number, number][] | null = null;
-        if (step.geometry && step.geometry.coordinates) {
-          polyline = step.geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
+        const stepPositions = toLeafletPositions(step.geometry);
+        if (stepPositions.length >= 2) {
+          polyline = stepPositions;
         } else if (step.from && step.to) {
           polyline = [step.from, step.to];
         } else if (step.from && !step.to && steps[i + 1] && steps[i + 1].to) {
@@ -105,13 +123,13 @@ export default function MapComponent({
           lastPoint = polyline[polyline.length - 1];
         }
       }
-    } else if (routeGeometry && routeGeometry.coordinates) {
-      const path: [number, number][] = routeGeometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
-      segs.push({ polyline: path, color: getModeColor('default'), isSimulated: false, mode: 'default', description: '' });
     }
+
     if (segs.length === 0 && routeGeometry && routeGeometry.coordinates) {
-      const path: [number, number][] = routeGeometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
-      segs.push({ polyline: path, color: getModeColor('car'), isSimulated: false, mode: 'car', description: '' });
+      const path = toLeafletPositions(routeGeometry);
+      if (path.length >= 2) {
+        segs.push({ polyline: path, color: getModeColor('default'), isSimulated: false, mode: 'default', description: '' });
+      }
     }
     return segs;
   }, [steps, routeGeometry]);
@@ -167,20 +185,21 @@ export default function MapComponent({
       zoom={6}
       className={styles.map}
     >
+      <SetMapView bounds={mapBounds} />
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       />
       {/* Segments multimodaux colorés */}
       {segments.map((seg, idx) => (
-        <div key={`segment-${idx}`}>
+        <Fragment key={`segment-${idx}`}>
           <Polyline
             key={"poly-" + idx}
             positions={seg.polyline}
             color={seg.color}
-            weight={8}
-            opacity={0.95}
-            dashArray={seg.isSimulated ? "12 12" : undefined}
+            weight={seg.mode === "train" ? 4 : seg.mode === "flight" ? 3 : 5}
+            opacity={seg.mode === "train" ? 0.85 : 0.95}
+            dashArray={seg.mode === "flight" ? "6, 8" : seg.isSimulated ? "12 12" : undefined}
             eventHandlers={seg.isSimulated ? {
               mouseover: (e) => {
                 e.target.openTooltip();
@@ -217,7 +236,7 @@ export default function MapComponent({
               </Tooltip>
             </Marker>
           )}
-        </div>
+        </Fragment>
       ))}
       {/* Marqueurs départ/arrivée */}
       {markers.map((position, idx) => (
