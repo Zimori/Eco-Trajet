@@ -8,6 +8,7 @@ from pathlib import Path
 
 import networkx as nx
 from fastapi import FastAPI, Response, status
+from fastapi.middleware.cors import CORSMiddleware
 
 from .api.v1.endpoints.routing import NominatimGeocoder, create_routing_router
 from .api.v1.router import router as v1_router
@@ -27,6 +28,7 @@ def create_app(
         version=os.getenv("APP_VERSION", "1.0.0"),
         description="Agent-ready multimodal routing with ADEME carbon metrics.",
     )
+    _configure_cors(app)
     settings = Settings.from_env()
     if engine is None:
         engine = _build_engine_from_environment(settings)
@@ -85,6 +87,20 @@ def _build_engine_from_environment(settings: Settings) -> MultimodalRoutingEngin
     )
 
 
+def _configure_cors(app: FastAPI) -> None:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "*",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
 def _load_rail_graph(path: Path) -> nx.Graph:
     """Load a NetworkX node-link graph produced by the data pipeline."""
     try:
@@ -108,6 +124,7 @@ except RuntimeError as exc:
         version=os.getenv("APP_VERSION", "0.1.0"),
         description="Unavailable until routing datasets are installed.",
     )
+    _configure_cors(app)
     app.include_router(v1_router)
 
     @app.get("/health", tags=["operations"], summary="Check backend health")
