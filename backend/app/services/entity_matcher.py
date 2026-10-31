@@ -155,12 +155,12 @@ class EmissionEntityMatcher:
 
     def find_nearest_station(
         self, lat: float, lon: float, max_distance_km: float = 30.0
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         """Return the closest station within ``max_distance_km``.
 
         Raises:
             InvalidCoordinatesError: for non-finite/out-of-zone coordinates.
-            StationNotFoundError: if no station lies in the search buffer.
+            ``None`` if no station lies in the search buffer.
         """
         self._validate_coordinates(lat, lon)
         if not math.isfinite(max_distance_km) or max_distance_km <= 0:
@@ -177,9 +177,7 @@ class EmissionEntityMatcher:
         except TypeError:  # geopandas versions before predicate support
             candidate_indices = list(self.stations.sindex.query(buffer))
         if not candidate_indices:
-            raise StationNotFoundError(
-                f"No station found within {max_distance_km:g} km of ({lat}, {lon})."
-            )
+            return None
 
         candidates = self.stations.iloc[candidate_indices].copy()
         candidates["_distance_m"] = candidates.geometry.distance(point)

@@ -178,8 +178,8 @@ class MultimodalRoutingEngine:
             raise RoadRoutingError("OSRM returned an invalid route payload.") from exc
         return RoadSegment(
             mode=mode,
-            distance_km=distance_m / 1000.0,
-            duration_minutes=duration_s / 60.0,
+            distance_km=round(distance_m / 1000.0, 1),
+            duration_minutes=round(duration_s / 60.0, 0),
             geometry=geometry,
         )
 
@@ -229,17 +229,17 @@ class MultimodalRoutingEngine:
                 f"No rail path found between {origin} and {destination}."
             ) from exc
         steps = [RailStep(uic=str(node), name=self._station_name(str(node))) for node in path]
-        rail_coordinates = self._rail_coordinates(path)
         duration_minutes = self._rail_duration_minutes(path)
+        rail_geometry = self._rail_geometry(path)
         return RailSegment(
             station_origin_uic=origin,
             station_dest_uic=destination,
-            distance_km=distance_km,
-            duration_minutes=duration_minutes,
+            distance_km=round(distance_km, 1),
+            duration_minutes=round(duration_minutes, 0),
             steps=steps,
             geometry=(
-                {"type": "LineString", "coordinates": rail_coordinates}
-                if len(rail_coordinates) >= 2
+                {"type": "LineString", "coordinates": rail_geometry}
+                if len(rail_geometry) >= 2
                 else None
             ),
         )
@@ -250,7 +250,8 @@ class MultimodalRoutingEngine:
         destination: tuple[float, float],
         *,
         max_walking_distance: float | None = None,
-    ) -> ItineraryResult:
+        access_mode: str | None = None,
+    ) -> ItineraryResult | None:
         """Resolve station matches, road access/egress, rail path and emissions."""
         if max_walking_distance is not None and (
             not math.isfinite(max_walking_distance) or max_walking_distance < 0
@@ -260,21 +261,41 @@ class MultimodalRoutingEngine:
             )
         self._validate_coordinate_pair(origin, "origin")
         self._validate_coordinate_pair(destination, "destination")
-        origin_station = self.matcher.find_nearest_station(*origin)
-        destination_station = self.matcher.find_nearest_station(*destination)
-        origin_uic = self._required_uic(origin_station)
-        destination_uic = self._required_uic(destination_station)
-        station_origin = self._station_coordinate(origin_uic)
-        station_destination = self._station_coordinate(destination_uic)
+        origin_hub = self._nearest_rail_hub(origin)
+        destination_hub = self._nearest_rail_hub(destination)
+        if (
+            origin_hub is None
+            or destination_hub is None
+            or origin_hub[0] == destination_hub[0]
+            or not nx.has_path(self.rail_graph, origin_hub[0], destination_hub[0])
+        ):
+            return None
+        origin_uic, station_origin = origin_hub
+        destination_uic, station_destination = destination_hub
+        resolved_access_mode = access_mode or self.road_mode
         access, egress = await asyncio.gather(
-            self.get_road_segment(origin, station_origin, self.road_mode),
-            self.get_road_segment(station_destination, destination, self.road_mode),
+            self.get_road_segment(origin, station_origin, resolved_access_mode),
+            self.get_road_segment(station_destination, destination, resolved_access_mode),
         )
         rail = self.get_rail_segment(origin_uic, destination_uic)
+        emission_mode = {
+            "foot": "marche",
+            "walk": "marche",
+            "marche": "marche",
+            "bike": "bike",
+        }.get(resolved_access_mode, "voiture")
         emissions = [
-            self._emission(access.distance_km, "voiture", self.road_vehicle_type),
+            self._emission(
+                access.distance_km,
+                emission_mode,
+                self.road_vehicle_type if emission_mode == "voiture" else None,
+            ),
             self._emission(rail.distance_km, "train", self.rail_vehicle_type),
-            self._emission(egress.distance_km, "voiture", self.road_vehicle_type),
+            self._emission(
+                egress.distance_km,
+                emission_mode,
+                self.road_vehicle_type if emission_mode == "voiture" else None,
+            ),
         ]
         return ItineraryResult(
             origin=origin,
@@ -287,17 +308,66 @@ class MultimodalRoutingEngine:
             total_emissions_gco2e=sum(item.emissions_gco2e for item in emissions),
         )
 
+    def _nearest_rail_hub(
+        self, coordinates: tuple[float, float], max_distance_km: float = 80.0
+    ) -> tuple[str, tuple[float, float]] | None:
+        nearest: tuple[float, str, tuple[float, float]] | None = None
+        for node, data in self.rail_graph.nodes(data=True):
+            latitude = data.get("lat", data.get("latitude", data.get("y")))
+            longitude = data.get(
+                "lon", data.get("longitude", data.get("lng", data.get("x")))
+            )
+            if latitude is None or longitude is None:
+                continue
+            try:
+                station = (float(latitude), float(longitude))
+            except (TypeError, ValueError):
+                continue
+            if not all(math.isfinite(value) for value in station):
+                continue
+            distance_km = self._great_circle_distance_km(coordinates, station)
+            if nearest is None or distance_km < nearest[0]:
+                nearest = (distance_km, str(node), station)
+        if nearest is None or nearest[0] > max_distance_km:
+            return None
+        return nearest[1], nearest[2]
+
+    @staticmethod
+    def _great_circle_distance_km(
+        origin: tuple[float, float], destination: tuple[float, float]
+    ) -> float:
+        radius_km = 6371.0088
+        lat1, lon1 = map(math.radians, origin)
+        lat2, lon2 = map(math.radians, destination)
+        delta_lat = lat2 - lat1
+        delta_lon = lon2 - lon1
+        value = (
+            math.sin(delta_lat / 2) ** 2
+            + math.cos(lat1)
+            * math.cos(lat2)
+            * math.sin(delta_lon / 2) ** 2
+        )
+        return radius_km * 2 * math.asin(math.sqrt(value))
+
     def _emission(
         self, distance_km: float, mode: str, vehicle_type: str | None
     ) -> EmissionBreakdown:
+        if mode == "bike":
+            return EmissionBreakdown(
+                mode=mode,
+                distance_km=round(distance_km, 1),
+                factor_gco2e_km_passenger=0.0,
+                emissions_gco2e=0.0,
+            )
         factor = self.matcher.get_emission_factor(mode, vehicle_type)
         value = float(factor["factor"])
+        emissions_gco2e = round(distance_km * value, 1)
         return EmissionBreakdown(
             mode=mode,
-            distance_km=distance_km,
+            distance_km=round(distance_km, 1),
             factor_gco2e_km_passenger=value,
             ademe_id=factor.get("ademe_id"),
-            emissions_gco2e=distance_km * value,
+            emissions_gco2e=emissions_gco2e,
         )
 
     def _station_coordinate(self, uic: str) -> tuple[float, float]:
@@ -341,6 +411,38 @@ class MultimodalRoutingEngine:
                 return []
             coordinates.append((longitude, latitude))
         return coordinates
+
+    def _rail_geometry(self, path: Sequence[object]) -> list[list[float]]:
+        coordinates: list[list[float]] = []
+        for source, target in itertools.pairwise(path):
+            edge_data = self.rail_graph.get_edge_data(source, target)
+            if not isinstance(edge_data, Mapping):
+                continue
+            if self.rail_graph.is_multigraph():
+                edge_data = min(
+                    edge_data.values(),
+                    key=lambda datum: self._edge_duration_seconds(datum),
+                )
+            geometry = edge_data.get("geometry") if isinstance(edge_data, Mapping) else None
+            if not isinstance(geometry, Mapping):
+                continue
+            segment = geometry.get("coordinates")
+            if not isinstance(segment, list) or not segment:
+                continue
+            if not coordinates:
+                coordinates.extend(segment)
+                continue
+            first = segment[0]
+            if len(first) >= 2 and len(coordinates) >= 2:
+                last = coordinates[-1]
+                if abs(first[0] - last[0]) < 1e-9 and abs(first[1] - last[1]) < 1e-9:
+                    coordinates.extend(segment[1:])
+                    continue
+            coordinates.extend(segment)
+        if coordinates and len(coordinates) >= 2:
+            return coordinates
+        fallback = self._rail_coordinates(path)
+        return [[lon, lat] for lon, lat in fallback]
 
     def _rail_duration_minutes(self, path: Sequence[object]) -> float:
         duration_seconds = 0.0
