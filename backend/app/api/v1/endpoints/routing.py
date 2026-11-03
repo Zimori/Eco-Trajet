@@ -275,28 +275,36 @@ def _to_response(
             co2_grams=result.emissions[0].emissions_gco2e,
             geometry=result.access.geometry,
         ),
-        SegmentDetail(
-            mode="train",
-            distance_m=result.rail.distance_km * 1000,
-            duration_s=result.rail.duration_minutes * 60,
-            co2_grams=result.emissions[1].emissions_gco2e,
-            geometry=result.rail.geometry,
-        ),
-        SegmentDetail(
-            mode=result.egress.mode,
-            distance_m=result.egress.distance_km * 1000,
-            duration_s=result.egress.duration_minutes * 60,
-            co2_grams=result.emissions[2].emissions_gco2e,
-            geometry=result.egress.geometry,
-        ),
     ]
-    origin_match = engine.matcher.find_nearest_station(*origin)
-    destination_match = engine.matcher.find_nearest_station(*destination)
-    reliability = 1.0 - min(
-        1.0,
-        (float(origin_match["distance_km"]) + float(destination_match["distance_km"]))
-        / 60.0,
-    )
+    if result.rail is not None and result.egress is not None:
+        segments.extend(
+            [
+                SegmentDetail(
+                    mode="train",
+                    distance_m=result.rail.distance_km * 1000,
+                    duration_s=result.rail.duration_minutes * 60,
+                    co2_grams=result.emissions[1].emissions_gco2e,
+                    geometry=result.rail.geometry,
+                ),
+                SegmentDetail(
+                    mode=result.egress.mode,
+                    distance_m=result.egress.distance_km * 1000,
+                    duration_s=result.egress.duration_minutes * 60,
+                    co2_grams=result.emissions[2].emissions_gco2e,
+                    geometry=result.egress.geometry,
+                ),
+            ]
+        )
+    if result.rail is None:
+        reliability = 0.0
+    else:
+        origin_match = engine.matcher.find_nearest_station(*origin)
+        destination_match = engine.matcher.find_nearest_station(*destination)
+        reliability = 1.0 - min(
+            1.0,
+            (float(origin_match["distance_km"]) + float(destination_match["distance_km"]))
+            / 60.0,
+        )
     return ItineraryResponse(
         segments=segments,
         totals=CarbonMetrics(

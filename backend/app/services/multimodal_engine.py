@@ -12,7 +12,7 @@ import httpx
 import networkx as nx
 from pydantic import BaseModel, ConfigDict, Field
 
-from .entity_matcher import EmissionEntityMatcher
+from .entity_matcher import EmissionEntityMatcher, StationNotFoundError
 
 
 class RoutingError(RuntimeError):
@@ -86,8 +86,8 @@ class ItineraryResult(BaseModel):
     origin: tuple[float, float]
     destination: tuple[float, float]
     access: RoadSegment
-    rail: RailSegment
-    egress: RoadSegment
+    rail: RailSegment | None = None
+    egress: RoadSegment | None = None
     emissions: list[EmissionBreakdown]
     total_distance_km: float = Field(ge=0)
     total_emissions_gco2e: float = Field(ge=0)
@@ -260,8 +260,16 @@ class MultimodalRoutingEngine:
             )
         self._validate_coordinate_pair(origin, "origin")
         self._validate_coordinate_pair(destination, "destination")
-        origin_station = self.matcher.find_nearest_station(*origin)
-        destination_station = self.matcher.find_nearest_station(*destination)
+        if self._coordinate_distance_km(origin, destination) <= 15:
+            direct = await self.get_road_segment(origin, destination, self.road_mode)
+            return self._road_only_result(origin, destination, direct)
+
+        try:
+            origin_station = self.matcher.find_nearest_station(*origin)
+            destination_station = self.matcher.find_nearest_station(*destination)
+        except StationNotFoundError:
+            direct = await self.get_road_segment(origin, destination, self.road_mode)
+            return self._road_only_result(origin, destination, direct)
         origin_uic = self._required_uic(origin_station)
         destination_uic = self._required_uic(destination_station)
         station_origin = self._station_coordinate(origin_uic)
@@ -285,6 +293,26 @@ class MultimodalRoutingEngine:
             emissions=emissions,
             total_distance_km=sum(item.distance_km for item in emissions),
             total_emissions_gco2e=sum(item.emissions_gco2e for item in emissions),
+        )
+
+    def _road_only_result(
+        self,
+        origin: tuple[float, float],
+        destination: tuple[float, float],
+        road: RoadSegment,
+    ) -> ItineraryResult:
+        emissions = [
+            self._emission(road.distance_km, "voiture", self.road_vehicle_type)
+        ]
+        return ItineraryResult(
+            origin=origin,
+            destination=destination,
+            access=road,
+            rail=None,
+            egress=None,
+            emissions=emissions,
+            total_distance_km=road.distance_km,
+            total_emissions_gco2e=emissions[0].emissions_gco2e,
         )
 
     def _emission(
@@ -388,6 +416,23 @@ class MultimodalRoutingEngine:
         raise RailRoutingError(
             "Each rail graph edge must define distance_km, distance, length_km or length_m."
         )
+
+    @staticmethod
+    def _coordinate_distance_km(
+        origin: tuple[float, float], destination: tuple[float, float]
+    ) -> float:
+        earth_radius_km = 6371.0088
+        origin_lat, origin_lon = map(math.radians, origin)
+        destination_lat, destination_lon = map(math.radians, destination)
+        delta_lat = destination_lat - origin_lat
+        delta_lon = destination_lon - origin_lon
+        haversine = (
+            math.sin(delta_lat / 2) ** 2
+            + math.cos(origin_lat)
+            * math.cos(destination_lat)
+            * math.sin(delta_lon / 2) ** 2
+        )
+        return 2 * earth_radius_km * math.asin(math.sqrt(haversine))
 
     @staticmethod
     def _required_uic(station: Mapping[str, Any]) -> str:

@@ -391,7 +391,7 @@ export default function CalculatePage() {
 
       {allRoutes.length > 0 && (
         <div className={styles.resultsContainer}>
-          <h2 className={styles.resultsTitle}>Compare transport scenarios</h2>
+          <h2 className={styles.resultsTitle}>Available itinerary</h2>
           <div className={styles.resultsGrid}>
             {allRoutes.filter((route, idx, arr) => {
               // Pour la voiture, n'afficher qu'une seule case "Car only" (pas les steps)
