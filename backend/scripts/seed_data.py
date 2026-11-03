@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Seed the reproducible ADEME, SNCF and rail-network runtime datasets.
 
 The SNCF export is downloaded from the public data endpoint by default. Use

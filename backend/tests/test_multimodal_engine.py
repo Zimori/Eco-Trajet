@@ -1,4 +1,5 @@
 import networkx as nx
+
 from app.services.multimodal_engine import MultimodalRoutingEngine
 
 
