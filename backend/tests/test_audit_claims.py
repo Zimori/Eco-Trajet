@@ -77,7 +77,7 @@ def _build(tmp_path: Path, osrm: OsrmRecorder, extra_stations=(), max_retries: i
     ademe = tmp_path / "ademe.parquet"
     stations = tmp_path / "stations.geojson"
     graph_path = tmp_path / "graph.json"
-    seed.build_ademe_dataset(ademe)
+    seed.build_ademe_dataset(ademe, seed.BASE_CARBONE_SAMPLE)
     _write_stations(stations, extra_stations)
     seed.build_rail_graph(graph_path)
     engine = MultimodalRoutingEngine(
@@ -85,7 +85,7 @@ def _build(tmp_path: Path, osrm: OsrmRecorder, extra_stations=(), max_retries: i
         _load_rail_graph(graph_path),
         client=httpx.AsyncClient(transport=httpx.MockTransport(osrm)),
         max_retries=max_retries,
-        road_vehicle_type="thermique",
+        road_vehicle_type="moyenne",
         rail_vehicle_type="TGV",
     )
     return engine, TestClient(create_app(engine=engine))
@@ -110,7 +110,7 @@ def test_paris_lyon_end_to_end_road_rail_road(tmp_path):
     assert train["duration_s"] == pytest.approx(7080)
   
     assert train["co2_grams"] == pytest.approx(427 * 2.93)
-    assert body["totals"]["co2_total"] == pytest.approx(427 * 2.93 + 10 * 218)
+    assert body["totals"]["co2_total"] == pytest.approx(427 * 2.93 + 10 * 160)
     assert body["totals"]["co2_total"] == pytest.approx(
         sum(s["co2_grams"] for s in body["segments"])
     )
@@ -161,13 +161,23 @@ def test_long_trip_outside_france_is_422_not_500(tmp_path):
 
 def test_ademe_factor_unit_conversion_and_ambiguity(tmp_path):
     ademe, stations = tmp_path / "a.parquet", tmp_path / "s.geojson"
-    seed.build_ademe_dataset(ademe)
+    seed.build_ademe_dataset(ademe, seed.BASE_CARBONE_SAMPLE)
     _write_stations(stations)
     matcher = EmissionEntityMatcher(ademe, stations)
-    assert matcher.get_emission_factor("voiture", "thermique")["factor"] == pytest.approx(218)
-    assert matcher.get_emission_factor("TGV", "TGV")["factor"] == pytest.approx(2.93)
+    car = matcher.get_emission_factor("voiture", "moyenne")
+    assert car == {"factor": pytest.approx(160), "ademe_id": "43809"}
+    assert matcher.get_emission_factor("TGV", "TGV")["ademe_id"] == "43256"
+    assert matcher.get_emission_factor("train", "intercites")["factor"] == pytest.approx(7.5)
     with pytest.raises(AmbiguousEmissionFactorError):
         matcher.get_emission_factor("train")
+
+
+def test_ademe_factor_per_vehicle_km_is_rejected(tmp_path):
+    csv = tmp_path / "Base_Carbone_V23.6.csv"
+    raw = seed.BASE_CARBONE_SAMPLE.read_bytes()
+    csv.write_bytes(raw.replace(b"kgCO2e/passager.km", b"kgCO2e/km"))
+    with pytest.raises(RuntimeError, match="kgCO2e/km"):
+        seed.build_ademe_dataset(tmp_path / "ademe.parquet", csv)
 
 
 def test_in_process_overhead_is_well_under_120ms(tmp_path):
@@ -215,7 +225,7 @@ def test_absurd_rail_detour_falls_back_to_road(tmp_path):
 def test_station_search_can_be_restricted_to_graph_nodes(tmp_path):
     chatelet = ("Châtelet-Les Halles", "87758607", 48.8619, 2.3470)
     ademe, stations = tmp_path / "a.parquet", tmp_path / "s.geojson"
-    seed.build_ademe_dataset(ademe)
+    seed.build_ademe_dataset(ademe, seed.BASE_CARBONE_SAMPLE)
     _write_stations(stations, [chatelet])
     matcher = EmissionEntityMatcher(ademe, stations)
     assert matcher.find_nearest_station(*PARIS)["code_uic"] == "87758607"

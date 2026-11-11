@@ -101,7 +101,7 @@ docker compose up --build
 
 The project keeps data local and explicit:
 
-- ADEME factors are stored as Parquet
+- ADEME factors are extracted from the official Base Carbone export (V23.6, per passenger.km; element ids in `ADEME_FACTORS`, `backend/scripts/seed_data.py`) and stored as Parquet
 - station metadata is stored as GeoJSON
 - the rail graph is stored as a NetworkX node-link JSON
 

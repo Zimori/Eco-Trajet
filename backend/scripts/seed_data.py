@@ -1,8 +1,8 @@
 """Seed the reproducible ADEME, SNCF and rail-network runtime datasets.
 
-The SNCF export is downloaded from the public data endpoint by default. Use
-``--offline-demo`` only for local demos without network access; that mode
-creates the same normalized schema with the documented hub stations.
+ADEME factors and SNCF stations are downloaded from the public open-data
+endpoints by default. ``--offline-demo`` works without network access: it reads
+a committed excerpt of the Base Carbone and uses the hub stations only.
 """
 
 from __future__ import annotations
@@ -34,6 +34,18 @@ HUBS = {
     "Nantes": ("87481002", 47.2172, -1.5420),
 }
 
+BASE_CARBONE_DATASET_URL = "https://data.ademe.fr/data-fair/api/v1/datasets/base-carboner"
+BASE_CARBONE_SAMPLE = DATA_DIR / "samples/Base_Carbone_V23.6.csv"
+# (mode, vehicle_type, Base Carbone element id); all per passenger.km.
+ADEME_FACTORS = (
+    ("train", "TGV", "43256"),
+    ("train", "Intercités", "43272"),
+    ("train", "TER", "43255"),
+    ("voiture", "moyenne", "43809"),
+    ("voiture", "essence", "43797"),
+    ("voiture", "gazole", "43800"),
+)
+
 EDGES = (
     ("87686006", "87723197", 427, 7080),
     ("87391003", "87581009", 585, 12600),
@@ -46,24 +58,40 @@ EDGES = (
 )
 
 
-def build_ademe_dataset(path: Path) -> None:
-    rows = [
-        ("ademe-tgv-v23", "train", "TGV", 0.00293),
-        ("ademe-intercites-v23", "train", "Intercités", 0.00860),
-        ("ademe-ter-v23", "train", "TER", 0.02480),
-        ("ademe-car-thermal-v23", "voiture", "thermique", 0.218),
-        ("ademe-car-electric-v23", "voiture", "electrique", 0.103),
-        ("ademe-bus-v23", "bus", "thermique", 0.113),
-        ("ademe-walk-v23", "marche", "marche", 0.0),
-    ]
+def build_ademe_dataset(path: Path, base_carbone_csv: Path | None = None) -> None:
+    """Extract the factors listed in ADEME_FACTORS from the official Base Carbone CSV."""
+    if base_carbone_csv is None:
+        base_carbone_csv, version = _download_base_carbone(path.parent)
+    else:
+        version = base_carbone_csv.stem
+    base = pd.read_csv(base_carbone_csv, sep=";", encoding="latin-1", decimal=",", dtype=str)
+    elements = base[base["Type Ligne"] == "Elément"].set_index("Identifiant de l'élément")
+
+    rows = []
+    for mode, vehicle_type, ademe_id in ADEME_FACTORS:
+        if ademe_id not in elements.index:
+            raise RuntimeError(f"ADEME element {ademe_id} is missing from {base_carbone_csv}.")
+        element = elements.loc[ademe_id]
+        status, unit = element["Statut de l'élément"], element["Unité français"]
+        if status != "Valide générique" or unit != "kgCO2e/passager.km":
+            raise RuntimeError(f"ADEME element {ademe_id} is {status!r} in {unit!r}.")
+        value = float(element["Total poste non décomposé"].replace(",", "."))
+        rows.append((ademe_id, mode, vehicle_type, value, unit, element["Nom base français"]))
+
     frame = pd.DataFrame(
-        rows,
-        columns=["id_ademe", "mode", "sub_mode", "emission_factor"],
+        rows, columns=["id_ademe", "mode", "vehicle_type", "emission_factor", "unit", "ademe_name"]
     )
-    frame["vehicle_type"] = frame["sub_mode"]
-    frame["unit"] = "kgCO2e/p.km"
-    frame["source"] = "ADEME Base Carbone V23 (2024)"
+    frame["source"] = f"ADEME {version}"
     frame.to_parquet(path, index=False)
+
+
+def _download_base_carbone(directory: Path) -> tuple[Path, str]:
+    with urlopen(f"{BASE_CARBONE_DATASET_URL}/data-files", timeout=30) as response:
+        data_file = json.load(response)[0]
+    target = directory / data_file["name"]
+    with urlopen(data_file["url"], timeout=120) as response:
+        target.write_bytes(response.read())
+    return target, target.stem
 
 
 def download_stations(path: Path, offline_demo: bool) -> None:
@@ -161,7 +189,10 @@ def main() -> int:
     args = parser.parse_args()
     data_dir = args.data_dir
     data_dir.mkdir(parents=True, exist_ok=True)
-    build_ademe_dataset(data_dir / "ademe_base_empreinte.parquet")
+    build_ademe_dataset(
+        data_dir / "ademe_base_empreinte.parquet",
+        BASE_CARBONE_SAMPLE if args.offline_demo else None,
+    )
     download_stations(data_dir / "sncf_stations.geojson", args.offline_demo)
     build_rail_graph(data_dir / "sncf_stations_network.json")
     print(f"Seeded routing datasets in {data_dir}")

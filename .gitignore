@@ -21,6 +21,7 @@ __pycache__/
 backend/data/*.parquet
 backend/data/*.geojson
 backend/data/*.json
+backend/data/*.csv
 !backend/data/.gitkeep
 
 # Next.js

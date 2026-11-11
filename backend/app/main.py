@@ -91,7 +91,7 @@ def _build_engine_from_environment(settings: Settings) -> MultimodalRoutingEngin
         osrm_base_url=settings.osrm_base_url,
         timeout_seconds=settings.osrm_timeout_seconds,
         max_retries=settings.osrm_max_retries,
-        road_vehicle_type=os.getenv("ROAD_VEHICLE_TYPE", "thermique"),
+        road_vehicle_type=os.getenv("ROAD_VEHICLE_TYPE", "moyenne"),
         rail_vehicle_type=os.getenv("RAIL_VEHICLE_TYPE", "TGV"),
     )
 
