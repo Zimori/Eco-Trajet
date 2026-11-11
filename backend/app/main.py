@@ -23,19 +23,8 @@ def create_app(
     geocoder: NominatimGeocoder | None = None,
 ) -> FastAPI:
     """Build the application, allowing fully injected test dependencies."""
-    app = FastAPI(
-        title="Eco-Trajet Multimodal Routing API",
-        version=os.getenv("APP_VERSION", "1.0.0"),
-        description="Agent-ready multimodal routing with ADEME carbon metrics.",
-    )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
     settings = Settings.from_env()
+    app = _base_app(settings, "Agent-ready multimodal routing with ADEME carbon metrics.")
     if engine is None:
         engine = _build_engine_from_environment(settings)
     if geocoder is None:
@@ -48,7 +37,6 @@ def create_app(
             ademe_database_version=settings.ademe_database_version,
         )
     )
-    app.include_router(v1_router)
 
     @app.get("/health", tags=["operations"], summary="Check backend health")
     async def health() -> dict[str, object]:
@@ -58,6 +46,23 @@ def create_app(
             "version": settings.app_version,
         }
 
+    return app
+
+
+def _base_app(settings: Settings, description: str) -> FastAPI:
+    app = FastAPI(
+        title="Eco-Trajet Multimodal Routing API",
+        version=settings.app_version,
+        description=description,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(v1_router)
     return app
 
 
@@ -83,9 +88,7 @@ def _build_engine_from_environment(settings: Settings) -> MultimodalRoutingEngin
     return MultimodalRoutingEngine(
         matcher,
         graph,
-        osrm_base_url=os.getenv(
-            "OSRM_BASE_URL", settings.osrm_base_url
-        ),
+        osrm_base_url=settings.osrm_base_url,
         timeout_seconds=settings.osrm_timeout_seconds,
         max_retries=settings.osrm_max_retries,
         road_vehicle_type=os.getenv("ROAD_VEHICLE_TYPE", "thermique"),
@@ -111,19 +114,7 @@ try:
     app = create_app()
 except RuntimeError as exc:
     _startup_error = str(exc)
-    app = FastAPI(
-        title="Eco-Trajet Multimodal Routing API",
-        version=os.getenv("APP_VERSION", "0.1.0"),
-        description="Unavailable until routing datasets are installed.",
-    )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-    app.include_router(v1_router)
+    app = _base_app(Settings.from_env(), "Unavailable until routing datasets are installed.")
 
     @app.get("/health", tags=["operations"], summary="Check backend health")
     async def unavailable_health(response: Response) -> dict[str, object]:
@@ -131,6 +122,6 @@ except RuntimeError as exc:
         return {
             "status": "degraded",
             "datasets_loaded": False,
-            "version": os.getenv("APP_VERSION", "1.0.0"),
+            "version": Settings.from_env().app_version,
             "detail": _startup_error,
         }
