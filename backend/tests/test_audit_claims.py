@@ -172,6 +172,12 @@ def test_ademe_factor_unit_conversion_and_ambiguity(tmp_path):
         matcher.get_emission_factor("train")
 
 
+def test_ademe_factors_come_from_base_carbone(tmp_path):
+    _, client = _build(tmp_path, OsrmRecorder())
+    body = client.post("/api/v1/routing/multimodal", json=_body(PARIS, LYON)).json()
+    assert body["metadata"]["ademe_database_version"] == "ADEME Base_Carbone_V23.6"
+
+
 def test_ademe_factor_per_vehicle_km_is_rejected(tmp_path):
     csv = tmp_path / "Base_Carbone_V23.6.csv"
     raw = seed.BASE_CARBONE_SAMPLE.read_bytes()

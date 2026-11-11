@@ -139,11 +139,10 @@ class NominatimGeocoder:
 def create_routing_router(
     engine: MultimodalRoutingEngine,
     geocoder: Geocoder,
-    *,
-    ademe_database_version: str = "unknown",
 ) -> APIRouter:
     """Create an isolated router with explicit engine and geocoder dependencies."""
     router = APIRouter()
+    ademe_database_version = engine.matcher.database_version
 
     def get_engine() -> MultimodalRoutingEngine:
         return engine

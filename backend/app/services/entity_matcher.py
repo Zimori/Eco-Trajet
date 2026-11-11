@@ -51,7 +51,7 @@ class EmissionEntityMatcher:
     # Lambert-93 covers metropolitan France only: (min_lon, min_lat, max_lon, max_lat).
     FRANCE_BOUNDS: Final = (-5.5, 41.0, 10.0, 51.6)
     STATION_COLUMNS: Final = ("name", "code_uic")
-    FACTOR_COLUMNS: Final = ("id_ademe", "mode", "vehicle_type", "emission_factor", "unit")
+    FACTOR_COLUMNS: Final = ("id_ademe", "mode", "vehicle_type", "emission_factor", "unit", "source")
 
     _MODE_ALIASES: Final = {
         "train": {"ferroviaire", "rail", "ter", "tgv", "intercites"},
@@ -81,6 +81,7 @@ class EmissionEntityMatcher:
         factors["_mode"] = factors["mode"].map(_normalize)
         factors["_vehicle"] = factors["vehicle_type"].fillna("").map(_normalize)
         self.emission_factors: pd.DataFrame = factors
+        self.database_version = str(factors["source"].iloc[0]) if len(factors) else "unknown"
 
     def find_nearest_station(
         self, lat: float, lon: float, max_distance_km: float = 30.0

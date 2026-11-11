@@ -4,7 +4,6 @@ services:
       context: ./backend
     environment:
       ROUTING_DATA_DIR: /app/data
-      ADEME_DATABASE_VERSION: Base Carbone V23 (2024)
       NEXT_PUBLIC_API_URL: http://localhost:8000
     ports:
       - "8000:8000"

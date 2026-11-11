@@ -10,7 +10,6 @@ from pathlib import Path
 @dataclass(frozen=True)
 class Settings:
     app_version: str
-    ademe_database_version: str
     data_dir: Path
     osrm_base_url: str
     osrm_timeout_seconds: float
@@ -21,9 +20,6 @@ class Settings:
         data_dir = Path(os.getenv("ROUTING_DATA_DIR", "backend/data"))
         return cls(
             app_version=os.getenv("APP_VERSION", "1.0.0"),
-            ademe_database_version=os.getenv(
-                "ADEME_DATABASE_VERSION", "Base Carbone V23 (2024)"
-            ),
             data_dir=data_dir,
             osrm_base_url=os.getenv(
                 "OSRM_BASE_URL", "https://router.project-osrm.org"

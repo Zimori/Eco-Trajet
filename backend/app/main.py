@@ -30,13 +30,7 @@ def create_app(
     if geocoder is None:
         geocoder = NominatimGeocoder()
 
-    app.include_router(
-        create_routing_router(
-            engine,
-            geocoder,
-            ademe_database_version=settings.ademe_database_version,
-        )
-    )
+    app.include_router(create_routing_router(engine, geocoder))
 
     @app.get("/health", tags=["operations"], summary="Check backend health")
     async def health() -> dict[str, object]:
