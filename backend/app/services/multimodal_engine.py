@@ -6,7 +6,7 @@ import asyncio
 import itertools
 import math
 from collections.abc import Mapping, Sequence
-from typing import Any, Protocol
+from typing import Any
 
 import httpx
 import networkx as nx
@@ -29,12 +29,6 @@ class RailRoutingError(RoutingError):
 
 class ItineraryInputError(RoutingError):
     """Raised when an itinerary input is invalid."""
-
-
-class RailGraphLike(Protocol):
-    """Minimal graph protocol accepted by the engine."""
-
-    def has_node(self, node: object) -> bool: ...
 
 
 class RoadSegment(BaseModel):
@@ -136,8 +130,9 @@ class MultimodalRoutingEngine:
             raise ValueError("station_candidates must be at least one.")
         if not math.isfinite(max_rail_detour_ratio) or max_rail_detour_ratio < 1:
             raise ValueError("max_rail_detour_ratio must be finite and at least 1.")
-        if not isinstance(rail_graph, nx.Graph):
+        if not isinstance(rail_graph, nx.Graph) or rail_graph.is_multigraph():
             raise TypeError("rail_graph must be a NetworkX Graph or DiGraph.")
+        _validate_rail_graph(rail_graph)
         self.matcher = matcher
         self.rail_graph = rail_graph
         self.osrm_base_url = osrm_base_url.rstrip("/")
@@ -228,30 +223,26 @@ class MultimodalRoutingEngine:
                 f"Rail graph does not contain both stations ({origin}, {destination})."
             )
         try:
-            path = nx.shortest_path(
-                self.rail_graph, origin, destination, weight=self._edge_weight
+            distance_km, path = nx.single_source_dijkstra(
+                self.rail_graph, origin, destination, weight="distance_km"
             )
-            distance_km = float(
-                nx.shortest_path_length(
-                    self.rail_graph, origin, destination, weight=self._edge_weight
-                )
-            )
-        except (nx.NetworkXNoPath, nx.NodeNotFound, TypeError, ValueError) as exc:
+        except nx.NetworkXNoPath as exc:
             raise RailRoutingError(
                 f"No rail path found between {origin} and {destination}."
             ) from exc
-        steps = [RailStep(uic=str(node), name=self._station_name(str(node))) for node in path]
-        rail_coordinates = self._rail_coordinates(path)
-        duration_minutes = self._rail_duration_minutes(path)
+        nodes = [self.rail_graph.nodes[node] for node in path]
+        duration_s = sum(
+            self.rail_graph.edges[edge]["duration_seconds"] for edge in itertools.pairwise(path)
+        )
         return RailSegment(
             station_origin_uic=origin,
             station_dest_uic=destination,
             distance_km=distance_km,
-            duration_minutes=duration_minutes,
-            steps=steps,
+            duration_minutes=duration_s / 60.0,
+            steps=[RailStep(uic=uic, name=node["name"]) for uic, node in zip(path, nodes)],
             geometry=(
-                {"type": "LineString", "coordinates": rail_coordinates}
-                if len(rail_coordinates) >= 2
+                {"type": "LineString", "coordinates": [(n["lon"], n["lat"]) for n in nodes]}
+                if len(path) >= 2
                 else None
             ),
         )
@@ -281,13 +272,13 @@ class MultimodalRoutingEngine:
             direct = await self.get_road_segment(origin, destination, self.road_mode)
             return self._road_only_result(origin, destination, direct)
         origin_station, destination_station = station_pair
-        origin_uic = self._required_uic(origin_station)
-        destination_uic = self._required_uic(destination_station)
-        station_origin = self._station_coordinate(origin_uic)
-        station_destination = self._station_coordinate(destination_uic)
+        origin_uic = origin_station["code_uic"]
+        destination_uic = destination_station["code_uic"]
         access, egress = await asyncio.gather(
-            self.get_road_segment(origin, station_origin, self.road_mode),
-            self.get_road_segment(station_destination, destination, self.road_mode),
+            self.get_road_segment(origin, self._station_coordinate(origin_uic), self.road_mode),
+            self.get_road_segment(
+                self._station_coordinate(destination_uic), destination, self.road_mode
+            ),
         )
         rail = self.get_rail_segment(origin_uic, destination_uic)
         emissions = [
@@ -304,8 +295,8 @@ class MultimodalRoutingEngine:
             emissions=emissions,
             total_distance_km=sum(item.distance_km for item in emissions),
             total_emissions_gco2e=sum(item.emissions_gco2e for item in emissions),
-            origin_station_distance_km=float(origin_station["distance_km"]),
-            destination_station_distance_km=float(destination_station["distance_km"]),
+            origin_station_distance_km=origin_station["distance_km"],
+            destination_station_distance_km=destination_station["distance_km"],
         )
 
     def _select_station_pair(
@@ -313,15 +304,10 @@ class MultimodalRoutingEngine:
         origin: tuple[float, float],
         destination: tuple[float, float],
     ) -> tuple[dict[str, Any], dict[str, Any]] | None:
-        """Pick the rail-graph station pair with the shortest door-to-door distance.
+        """Return the graph station pair minimising access + rail + egress km.
 
-        The ``station_candidates`` nearest graph stations on each side are
-        combined; each pair is scored as straight-line access + rail path +
-        straight-line egress. Pairs using the same station on both ends, or
-        with no rail path, are skipped, and so is any pair longer than
-        ``max_rail_detour_ratio`` times the straight-line trip distance.
-        Returns ``None`` when no rail option remains, so the caller falls back
-        to a road-only itinerary.
+        ``None`` (road-only fallback) when every pair shares a station, has no
+        rail path, or exceeds ``max_rail_detour_ratio`` x the straight-line trip.
         """
         max_cost = self.max_rail_detour_ratio * self._coordinate_distance_km(
             origin, destination
@@ -336,18 +322,18 @@ class MultimodalRoutingEngine:
         best_pair: tuple[dict[str, Any], dict[str, Any]] | None = None
         best_cost = math.inf
         for origin_station in origin_stations:
-            origin_uic = self._required_uic(origin_station)
+            origin_uic = origin_station["code_uic"]
             rail_lengths = nx.single_source_dijkstra_path_length(
-                self.rail_graph, origin_uic, weight=self._edge_weight
+                self.rail_graph, origin_uic, weight="distance_km"
             )
             for destination_station in destination_stations:
-                destination_uic = self._required_uic(destination_station)
+                destination_uic = destination_station["code_uic"]
                 if destination_uic == origin_uic or destination_uic not in rail_lengths:
                     continue
                 cost = (
-                    float(origin_station["distance_km"])
-                    + float(rail_lengths[destination_uic])
-                    + float(destination_station["distance_km"])
+                    origin_station["distance_km"]
+                    + rail_lengths[destination_uic]
+                    + destination_station["distance_km"]
                 )
                 if cost <= max_cost and cost < best_cost:
                     best_pair, best_cost = (origin_station, destination_station), cost
@@ -387,93 +373,8 @@ class MultimodalRoutingEngine:
         )
 
     def _station_coordinate(self, uic: str) -> tuple[float, float]:
-        column = self.matcher._uic_column
-        if column is None:
-            raise RailRoutingError("Station dataset has no UIC column.")
-        rows = self.matcher.stations[
-            self.matcher.stations[column].astype(str).str.strip() == uic
-        ]
-        if rows.empty:
-            raise RailRoutingError(f"Station {uic} is absent from the station dataset.")
-        point = self.matcher.stations.to_crs(self.matcher.WGS84_CRS).loc[
-            rows.index[0]
-        ].geometry
-        return float(point.y), float(point.x)
-
-    def _station_name(self, uic: str) -> str | None:
-        column = self.matcher._uic_column
-        if column is None:
-            return None
-        rows = self.matcher.stations[
-            self.matcher.stations[column].astype(str).str.strip() == uic
-        ]
-        if rows.empty:
-            return None
-        return str(rows.iloc[0][self.matcher._station_name_column])
-
-    def _rail_coordinates(self, path: Sequence[object]) -> list[tuple[float, float]]:
-        coordinates: list[tuple[float, float]] = []
-        for node in path:
-            data = self.rail_graph.nodes[node]
-            lat = data.get("lat", data.get("latitude", data.get("y")))
-            lon = data.get("lon", data.get("longitude", data.get("lng", data.get("x"))))
-            if lat is None or lon is None:
-                return []
-            try:
-                latitude, longitude = float(lat), float(lon)
-            except (TypeError, ValueError):
-                return []
-            if not (math.isfinite(latitude) and math.isfinite(longitude)):
-                return []
-            coordinates.append((longitude, latitude))
-        return coordinates
-
-    def _rail_duration_minutes(self, path: Sequence[object]) -> float:
-        duration_seconds = 0.0
-        for source, target in itertools.pairwise(path):
-            edge_data = self.rail_graph.get_edge_data(source, target)
-            if not isinstance(edge_data, Mapping):
-                raise RailRoutingError("Rail graph edge data is invalid.")
-            if self.rail_graph.is_multigraph():
-                edge_data = min(
-                    edge_data.values(),
-                    key=lambda data: self._edge_duration_seconds(data),
-                )
-            duration_seconds += self._edge_duration_seconds(edge_data)
-        return duration_seconds / 60.0
-
-    @staticmethod
-    def _edge_duration_seconds(data: Mapping[str, Any]) -> float:
-        for key in ("duration_seconds", "duration_s"):
-            if key in data:
-                value = float(data[key])
-                if math.isfinite(value) and value >= 0:
-                    return value
-        for key in ("duration_minutes", "duration_min"):
-            if key in data:
-                value = float(data[key]) * 60.0
-                if math.isfinite(value) and value >= 0:
-                    return value
-        raise RailRoutingError(
-            "Each rail graph edge must define duration_seconds or duration_minutes."
-        )
-
-    def _edge_weight(
-        self, source: object, target: object, data: Mapping[str, Any]
-    ) -> float:
-        del source, target
-        for key in ("distance_km", "distance", "length_km"):
-            if key in data:
-                value = float(data[key])
-                if math.isfinite(value) and value >= 0:
-                    return value
-        if "length_m" in data:
-            value = float(data["length_m"]) / 1000.0
-            if math.isfinite(value) and value >= 0:
-                return value
-        raise RailRoutingError(
-            "Each rail graph edge must define distance_km, distance, length_km or length_m."
-        )
+        node = self.rail_graph.nodes[uic]
+        return node["lat"], node["lon"]
 
     @staticmethod
     def _coordinate_distance_km(
@@ -493,13 +394,6 @@ class MultimodalRoutingEngine:
         return 2 * earth_radius_km * math.asin(math.sqrt(haversine))
 
     @staticmethod
-    def _required_uic(station: Mapping[str, Any]) -> str:
-        uic = station.get("code_uic")
-        if uic is None or not str(uic).strip():
-            raise RailRoutingError("Nearest station has no UIC code.")
-        return str(uic).strip()
-
-    @staticmethod
     def _validate_coordinate_pair(
         coordinates: Sequence[float], label: str
     ) -> None:
@@ -507,3 +401,15 @@ class MultimodalRoutingEngine:
             raise ItineraryInputError(f"{label} must contain (latitude, longitude).")
         if not all(isinstance(value, (int, float)) and math.isfinite(value) for value in coordinates):
             raise ItineraryInputError(f"{label} must contain finite numeric coordinates.")
+
+
+def _validate_rail_graph(graph: nx.Graph) -> None:
+    for uic, node in graph.nodes(data=True):
+        if not {"name", "lat", "lon"} <= node.keys():
+            raise RailRoutingError(f"Rail graph node {uic} needs name, lat and lon.")
+    for source, target, edge in graph.edges(data=True):
+        values = [edge.get("distance_km"), edge.get("duration_seconds")]
+        if not all(isinstance(v, (int, float)) and math.isfinite(v) and v >= 0 for v in values):
+            raise RailRoutingError(
+                f"Rail graph edge {source}-{target} needs distance_km and duration_seconds >= 0."
+            )
