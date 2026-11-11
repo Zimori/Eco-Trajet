@@ -10,7 +10,8 @@ CALCULATE_MULTIMODAL_TRIP_TOOL = {
         "name": "calculate_multimodal_trip",
         "description": (
             "Calculates optimal multimodal route (road + high-speed rail) "
-            "and certified ADEME carbon footprint between origin and destination coordinates."
+            "and its carbon footprint (ADEME emission factors) between origin and "
+            "destination coordinates."
         ),
         "parameters": {
             "type": "object",
