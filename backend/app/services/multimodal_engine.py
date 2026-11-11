@@ -59,6 +59,8 @@ class RailSegment(BaseModel):
     distance_km: float = Field(ge=0)
     duration_minutes: float = Field(ge=0)
     steps: list[RailStep]
+    # Train type (ADEME vehicle type) -> km travelled with it.
+    distance_km_by_service: dict[str, float] = Field(default_factory=dict)
     geometry: dict[str, Any] | None = None
 
 
@@ -118,7 +120,7 @@ class MultimodalRoutingEngine:
         client: httpx.AsyncClient | None = None,
         road_mode: str = "car",
         road_vehicle_type: str | None = None,
-        rail_vehicle_type: str | None = None,
+        rail_vehicle_type: str = "TGV",
         station_candidates: int = 3,
         max_rail_detour_ratio: float = 2.0,
     ) -> None:
@@ -231,14 +233,19 @@ class MultimodalRoutingEngine:
                 f"No rail path found between {origin} and {destination}."
             ) from exc
         nodes = [self.rail_graph.nodes[node] for node in path]
-        duration_s = sum(
-            self.rail_graph.edges[edge]["duration_seconds"] for edge in itertools.pairwise(path)
-        )
+        edges = [self.rail_graph.edges[edge] for edge in itertools.pairwise(path)]
+        distance_km_by_service: dict[str, float] = {}
+        for edge in edges:
+            service = edge.get("service", self.rail_vehicle_type)
+            distance_km_by_service[service] = (
+                distance_km_by_service.get(service, 0.0) + edge["distance_km"]
+            )
         return RailSegment(
             station_origin_uic=origin,
             station_dest_uic=destination,
             distance_km=distance_km,
-            duration_minutes=duration_s / 60.0,
+            duration_minutes=sum(edge["duration_seconds"] for edge in edges) / 60.0,
+            distance_km_by_service=distance_km_by_service,
             steps=[RailStep(uic=uic, name=node["name"]) for uic, node in zip(path, nodes)],
             geometry=(
                 {"type": "LineString", "coordinates": [(n["lon"], n["lat"]) for n in nodes]}
@@ -275,7 +282,7 @@ class MultimodalRoutingEngine:
         rail = self.get_rail_segment(origin_uic, destination_uic)
         emissions = [
             self._emission(access.distance_km, "voiture", self.road_vehicle_type),
-            self._emission(rail.distance_km, "train", self.rail_vehicle_type),
+            self._rail_emission(rail),
             self._emission(egress.distance_km, "voiture", self.road_vehicle_type),
         ]
         return ItineraryResult(
@@ -362,6 +369,20 @@ class MultimodalRoutingEngine:
             factor_gco2e_km_passenger=value,
             ademe_id=factor.get("ademe_id"),
             emissions_gco2e=distance_km * value,
+        )
+
+    def _rail_emission(self, rail: RailSegment) -> EmissionBreakdown:
+        parts = [
+            self._emission(km, "train", service)
+            for service, km in rail.distance_km_by_service.items()
+        ]
+        emissions = sum(part.emissions_gco2e for part in parts)
+        return EmissionBreakdown(
+            mode="train",
+            distance_km=rail.distance_km,
+            factor_gco2e_km_passenger=emissions / rail.distance_km if rail.distance_km else 0.0,
+            ademe_id=",".join(sorted({part.ademe_id for part in parts if part.ademe_id})) or None,
+            emissions_gco2e=emissions,
         )
 
     def _station_coordinate(self, uic: str) -> tuple[float, float]:
