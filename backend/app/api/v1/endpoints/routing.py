@@ -295,14 +295,17 @@ def _to_response(
                 ),
             ]
         )
-    if result.rail is None:
+    if (
+        result.rail is None
+        or result.origin_station_distance_km is None
+        or result.destination_station_distance_km is None
+    ):
         reliability = 0.0
     else:
-        origin_match = engine.matcher.find_nearest_station(*origin)
-        destination_match = engine.matcher.find_nearest_station(*destination)
+        # Score the stations actually used by the itinerary (no second lookup).
         reliability = 1.0 - min(
             1.0,
-            (float(origin_match["distance_km"]) + float(destination_match["distance_km"]))
+            (result.origin_station_distance_km + result.destination_station_distance_km)
             / 60.0,
         )
     return ItineraryResponse(

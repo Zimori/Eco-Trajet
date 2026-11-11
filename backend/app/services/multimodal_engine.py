@@ -91,6 +91,8 @@ class ItineraryResult(BaseModel):
     emissions: list[EmissionBreakdown]
     total_distance_km: float = Field(ge=0)
     total_emissions_gco2e: float = Field(ge=0)
+    origin_station_distance_km: float | None = Field(default=None, ge=0)
+    destination_station_distance_km: float | None = Field(default=None, ge=0)
 
 
 class MultimodalRoutingEngine:
@@ -302,6 +304,8 @@ class MultimodalRoutingEngine:
             emissions=emissions,
             total_distance_km=sum(item.distance_km for item in emissions),
             total_emissions_gco2e=sum(item.emissions_gco2e for item in emissions),
+            origin_station_distance_km=float(origin_station["distance_km"]),
+            destination_station_distance_km=float(destination_station["distance_km"]),
         )
 
     def _select_station_pair(
