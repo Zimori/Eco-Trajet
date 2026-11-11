@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 import unicodedata
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final
 
@@ -162,9 +162,37 @@ class EmissionEntityMatcher:
             InvalidCoordinatesError: for non-finite/out-of-zone coordinates.
             StationNotFoundError: if no station lies in the search buffer.
         """
+        stations = self.find_nearest_stations(
+            lat, lon, max_distance_km=max_distance_km, limit=1
+        )
+        if not stations:
+            raise StationNotFoundError(
+                f"No station found within {max_distance_km:g} km of ({lat}, {lon})."
+            )
+        return stations[0]
+
+    def find_nearest_stations(
+        self,
+        lat: float,
+        lon: float,
+        *,
+        max_distance_km: float = 30.0,
+        limit: int | None = None,
+        uics: Collection[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return stations within ``max_distance_km``, closest first.
+
+        ``uics`` restricts the search to stations whose UIC code is in the
+        collection (e.g. the nodes of the rail graph). ``limit`` caps the
+        number of results. Returns an empty list when nothing matches.
+        """
         self._validate_coordinates(lat, lon)
         if not math.isfinite(max_distance_km) or max_distance_km <= 0:
             raise ValueError("max_distance_km must be a finite number greater than zero.")
+        if limit is not None and limit < 1:
+            raise ValueError("limit must be at least one.")
+        if uics is not None and self._uic_column is None:
+            return []
 
         point = gpd.GeoSeries(
             [Point(float(lon), float(lat))], crs=self.WGS84_CRS
@@ -177,24 +205,30 @@ class EmissionEntityMatcher:
         except TypeError:  # geopandas versions before predicate support
             candidate_indices = list(self.stations.sindex.query(buffer))
         if not candidate_indices:
-            raise StationNotFoundError(
-                f"No station found within {max_distance_km:g} km of ({lat}, {lon})."
-            )
+            return []
 
         candidates = self.stations.iloc[candidate_indices].copy()
+        if uics is not None:
+            allowed = {str(uic).strip() for uic in uics}
+            candidates = candidates[
+                candidates[self._uic_column].astype(str).str.strip().isin(allowed)
+            ]
         candidates["_distance_m"] = candidates.geometry.distance(point)
-        nearest = candidates.loc[candidates["_distance_m"].idxmin()]
-        distance_km = float(nearest["_distance_m"]) / 1000.0
-        result: dict[str, Any] = {
-            "name": str(nearest[self._station_name_column]),
-            "code_uic": (
-                None
-                if self._uic_column is None or pd.isna(nearest[self._uic_column])
-                else str(nearest[self._uic_column])
-            ),
-            "distance_km": round(distance_km, 3),
-        }
-        return result
+        candidates = candidates.sort_values("_distance_m", kind="stable")
+        if limit is not None:
+            candidates = candidates.head(limit)
+        return [
+            {
+                "name": str(row[self._station_name_column]),
+                "code_uic": (
+                    None
+                    if self._uic_column is None or pd.isna(row[self._uic_column])
+                    else str(row[self._uic_column]).strip()
+                ),
+                "distance_km": round(float(row["_distance_m"]) / 1000.0, 3),
+            }
+            for _, row in candidates.iterrows()
+        ]
 
     def get_emission_factor(
         self, mode: str, vehicle_type: str | None = None

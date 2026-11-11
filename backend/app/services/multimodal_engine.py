@@ -12,7 +12,7 @@ import httpx
 import networkx as nx
 from pydantic import BaseModel, ConfigDict, Field
 
-from .entity_matcher import EmissionEntityMatcher, StationNotFoundError
+from .entity_matcher import EmissionEntityMatcher
 
 
 class RoutingError(RuntimeError):
@@ -123,11 +123,17 @@ class MultimodalRoutingEngine:
         road_mode: str = "car",
         road_vehicle_type: str | None = None,
         rail_vehicle_type: str | None = None,
+        station_candidates: int = 3,
+        max_rail_detour_ratio: float = 2.0,
     ) -> None:
         if timeout_seconds <= 0 or not math.isfinite(timeout_seconds):
             raise ValueError("timeout_seconds must be finite and greater than zero.")
         if max_retries < 1:
             raise ValueError("max_retries must be at least one.")
+        if station_candidates < 1:
+            raise ValueError("station_candidates must be at least one.")
+        if not math.isfinite(max_rail_detour_ratio) or max_rail_detour_ratio < 1:
+            raise ValueError("max_rail_detour_ratio must be finite and at least 1.")
         if not isinstance(rail_graph, nx.Graph):
             raise TypeError("rail_graph must be a NetworkX Graph or DiGraph.")
         self.matcher = matcher
@@ -139,6 +145,10 @@ class MultimodalRoutingEngine:
         self.road_mode = road_mode
         self.road_vehicle_type = road_vehicle_type
         self.rail_vehicle_type = rail_vehicle_type
+        self.station_candidates = station_candidates
+        self.max_rail_detour_ratio = max_rail_detour_ratio
+        # Only stations that exist in the rail graph can start or end a rail leg.
+        self._rail_nodes = frozenset(str(node) for node in rail_graph.nodes)
 
     async def get_road_segment(
         self,
@@ -264,12 +274,11 @@ class MultimodalRoutingEngine:
             direct = await self.get_road_segment(origin, destination, self.road_mode)
             return self._road_only_result(origin, destination, direct)
 
-        try:
-            origin_station = self.matcher.find_nearest_station(*origin)
-            destination_station = self.matcher.find_nearest_station(*destination)
-        except StationNotFoundError:
+        station_pair = self._select_station_pair(origin, destination)
+        if station_pair is None:
             direct = await self.get_road_segment(origin, destination, self.road_mode)
             return self._road_only_result(origin, destination, direct)
+        origin_station, destination_station = station_pair
         origin_uic = self._required_uic(origin_station)
         destination_uic = self._required_uic(destination_station)
         station_origin = self._station_coordinate(origin_uic)
@@ -294,6 +303,51 @@ class MultimodalRoutingEngine:
             total_distance_km=sum(item.distance_km for item in emissions),
             total_emissions_gco2e=sum(item.emissions_gco2e for item in emissions),
         )
+
+    def _select_station_pair(
+        self,
+        origin: tuple[float, float],
+        destination: tuple[float, float],
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """Pick the rail-graph station pair with the shortest door-to-door distance.
+
+        The ``station_candidates`` nearest graph stations on each side are
+        combined; each pair is scored as straight-line access + rail path +
+        straight-line egress. Pairs using the same station on both ends, or
+        with no rail path, are skipped, and so is any pair longer than
+        ``max_rail_detour_ratio`` times the straight-line trip distance.
+        Returns ``None`` when no rail option remains, so the caller falls back
+        to a road-only itinerary.
+        """
+        max_cost = self.max_rail_detour_ratio * self._coordinate_distance_km(
+            origin, destination
+        )
+        origin_stations = self.matcher.find_nearest_stations(
+            *origin, limit=self.station_candidates, uics=self._rail_nodes
+        )
+        destination_stations = self.matcher.find_nearest_stations(
+            *destination, limit=self.station_candidates, uics=self._rail_nodes
+        )
+
+        best_pair: tuple[dict[str, Any], dict[str, Any]] | None = None
+        best_cost = math.inf
+        for origin_station in origin_stations:
+            origin_uic = self._required_uic(origin_station)
+            rail_lengths = nx.single_source_dijkstra_path_length(
+                self.rail_graph, origin_uic, weight=self._edge_weight
+            )
+            for destination_station in destination_stations:
+                destination_uic = self._required_uic(destination_station)
+                if destination_uic == origin_uic or destination_uic not in rail_lengths:
+                    continue
+                cost = (
+                    float(origin_station["distance_km"])
+                    + float(rail_lengths[destination_uic])
+                    + float(destination_station["distance_km"])
+                )
+                if cost <= max_cost and cost < best_cost:
+                    best_pair, best_cost = (origin_station, destination_station), cost
+        return best_pair
 
     def _road_only_result(
         self,
