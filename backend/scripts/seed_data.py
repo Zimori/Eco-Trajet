@@ -157,12 +157,14 @@ def main() -> int:
         action="store_true",
         help="Skip the SNCF download and generate a deterministic hub dataset.",
     )
+    parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     args = parser.parse_args()
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    build_ademe_dataset(DATA_DIR / "ademe_base_empreinte.parquet")
-    download_stations(DATA_DIR / "sncf_stations.geojson", args.offline_demo)
-    build_rail_graph(DATA_DIR / "sncf_stations_network.json")
-    print(f"Seeded routing datasets in {DATA_DIR}")
+    data_dir = args.data_dir
+    data_dir.mkdir(parents=True, exist_ok=True)
+    build_ademe_dataset(data_dir / "ademe_base_empreinte.parquet")
+    download_stations(data_dir / "sncf_stations.geojson", args.offline_demo)
+    build_rail_graph(data_dir / "sncf_stations_network.json")
+    print(f"Seeded routing datasets in {data_dir}")
     return 0
 
 
