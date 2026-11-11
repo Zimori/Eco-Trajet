@@ -247,12 +247,10 @@ def test_integer_coordinates_are_accepted(tmp_path):
     assert response.status_code == 200, response.text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="B8: agent tool schema does not match its endpoint",
-)
 def test_agent_tool_schema_matches_its_endpoint(tmp_path):
     _, client = _build(tmp_path, OsrmRecorder())
     schema = client.get("/api/v1/agent-tools/schema").json()["function"]["parameters"]
     endpoint = client.app.openapi()["components"]["schemas"]["AgentTripRequest"]
-    assert set(schema["required"]) <= set(endpoint["properties"])
+    assert schema["properties"] == endpoint["properties"]
+    assert schema["required"] == endpoint["required"]
+    assert schema["additionalProperties"] is False

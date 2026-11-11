@@ -66,7 +66,7 @@ This endpoint exposes the tool schema for an agent.
 curl --noproxy "*" -sS http://127.0.0.1:8000/api/v1/agent-tools/schema
 ```
 
-The generated schema includes the `calculate_multimodal_trip` function with `origin_lat`, `origin_lon`, `dest_lat`, `dest_lon`, and `preference`.
+The schema describes the `calculate_multimodal_trip` function. Its parameters are generated from the `/api/v1/agent-tools/calculate-trip` request model (`origin` and `destination` addresses).
 
 ## Local setup
 
