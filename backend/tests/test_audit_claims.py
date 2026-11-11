@@ -91,14 +91,11 @@ def _build(tmp_path: Path, osrm: OsrmRecorder, extra_stations=(), max_retries: i
     return engine, TestClient(create_app(engine=engine))
 
 
-def _body(origin, destination, **preferences):
-    body = {
+def _body(origin, destination):
+    return {
         "origin": {"lat": origin[0], "lon": origin[1]},
         "destination": {"lat": destination[0], "lon": destination[1]},
     }
-    if preferences:
-        body["preferences"] = preferences
-    return body
 
 
 def test_paris_lyon_end_to_end_road_rail_road(tmp_path):
@@ -239,21 +236,6 @@ def test_request_contract_is_strict(tmp_path):
     body["unexpected"] = True
     response = client.post("/api/v1/routing/multimodal", json=body)
     assert response.status_code == 422
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="B7: max_walking_distance is ignored",
-)
-def test_max_walking_distance_changes_the_result(tmp_path):
-    _, client = _build(tmp_path, OsrmRecorder())
-    loose = client.post(
-        "/api/v1/routing/multimodal", json=_body(PARIS, LYON, max_walking_distance=5000)
-    ).json()
-    strict = client.post(
-        "/api/v1/routing/multimodal", json=_body(PARIS, LYON, max_walking_distance=0)
-    ).json()
-    assert [s["mode"] for s in loose["segments"]] != [s["mode"] for s in strict["segments"]]
 
 
 @pytest.mark.xfail(

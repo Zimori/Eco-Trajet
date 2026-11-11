@@ -24,13 +24,12 @@ from ....services.multimodal_engine import (
 
 
 class ItineraryRequest(BaseModel):
-    """Coordinates and traveller preferences for a multimodal itinerary."""
+    """Coordinates of a multimodal itinerary."""
 
     model_config = ConfigDict(json_schema_extra={
         "example": {
             "origin": {"lat": 48.8566, "lon": 2.3522},
             "destination": {"lat": 45.764, "lon": 4.8357},
-            "preferences": {"max_walking_distance": 1500},
         }
     })
 
@@ -38,13 +37,8 @@ class ItineraryRequest(BaseModel):
         lat: float = Field(ge=-90, le=90)
         lon: float = Field(ge=-180, le=180)
 
-    class Preferences(BaseModel):
-        max_walking_distance: float | None = Field(default=1500, ge=0)
-        comfort: str | None = Field(default="standard", min_length=1)
-
     origin: Coordinate
     destination: Coordinate
-    preferences: Preferences = Field(default_factory=Preferences)
 
 
 class SegmentDetail(BaseModel):
@@ -86,9 +80,6 @@ class AgentTripRequest(BaseModel):
 
     origin: str = Field(min_length=1, description="Departure address.")
     destination: str = Field(min_length=1, description="Arrival address.")
-    preferences: ItineraryRequest.Preferences = Field(
-        default_factory=ItineraryRequest.Preferences
-    )
 
 
 class AgentTripSummary(BaseModel):
@@ -165,7 +156,7 @@ def create_routing_router(
             "with OSRM, and computes the shortest rail path with ADEME carbon metrics."
         ),
         responses={
-            422: {"description": "Invalid coordinates or preferences."},
+            422: {"description": "Invalid coordinates."},
             502: {"description": "Routing provider or railway graph failure."},
         },
     )
@@ -177,11 +168,7 @@ def create_routing_router(
             started_at = time.perf_counter()
             origin = (request.origin.lat, request.origin.lon)
             destination = (request.destination.lat, request.destination.lon)
-            result = await routing_engine.resolve_full_multimodal_itinerary(
-                origin,
-                destination,
-                max_walking_distance=request.preferences.max_walking_distance,
-            )
+            result = await routing_engine.resolve_full_multimodal_itinerary(origin, destination)
             return _to_response(
                 result, ademe_database_version, (time.perf_counter() - started_at) * 1000
             )
@@ -214,11 +201,7 @@ def create_routing_router(
                 address_geocoder.geocode(request.origin),
                 address_geocoder.geocode(request.destination),
             )
-            result = await routing_engine.resolve_full_multimodal_itinerary(
-                origin,
-                destination,
-                max_walking_distance=request.preferences.max_walking_distance,
-            )
+            result = await routing_engine.resolve_full_multimodal_itinerary(origin, destination)
         except (ValueError, ItineraryInputError) as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         except (RoadRoutingError, RailRoutingError) as exc:

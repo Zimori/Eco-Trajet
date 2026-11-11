@@ -251,16 +251,8 @@ class MultimodalRoutingEngine:
         self,
         origin: tuple[float, float],
         destination: tuple[float, float],
-        *,
-        max_walking_distance: float | None = None,
     ) -> ItineraryResult:
         """Resolve station matches, road access/egress, rail path and emissions."""
-        if max_walking_distance is not None and (
-            not math.isfinite(max_walking_distance) or max_walking_distance < 0
-        ):
-            raise ItineraryInputError(
-                "max_walking_distance must be a finite non-negative distance in metres."
-            )
         self._validate_coordinate_pair(origin, "origin")
         self._validate_coordinate_pair(destination, "destination")
         if self._coordinate_distance_km(origin, destination) <= 15:

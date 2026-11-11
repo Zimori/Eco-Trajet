@@ -52,8 +52,7 @@ curl --noproxy "*" -sS \
   -H 'Content-Type: application/json' \
   -d '{
     "origin": {"lat": 48.8566, "lon": 2.3522},
-    "destination": {"lat": 45.7640, "lon": 4.8357},
-    "preferences": {"max_walking_distance": 1500, "comfort": "standard"}
+    "destination": {"lat": 45.7640, "lon": 4.8357}
   }'
 ```
 
