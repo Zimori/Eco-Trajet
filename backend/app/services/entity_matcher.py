@@ -121,7 +121,8 @@ class EmissionEntityMatcher:
         )
         candidates = self.stations.iloc[indices]
         if uics is not None:
-            candidates = candidates[candidates["code_uic"].isin(uics)]
+            # Membership per candidate: Series.isin would rehash all of ``uics`` on every call.
+            candidates = candidates[candidates["code_uic"].map(uics.__contains__).astype(bool)]
         distances_m = candidates.geometry.distance(point).sort_values(kind="stable")
         if limit is not None:
             distances_m = distances_m.head(limit)

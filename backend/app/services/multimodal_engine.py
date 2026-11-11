@@ -323,7 +323,7 @@ class MultimodalRoutingEngine:
         for origin_station in origin_stations:
             origin_uic = origin_station["code_uic"]
             rail_lengths = nx.single_source_dijkstra_path_length(
-                self.rail_graph, origin_uic, weight="distance_km"
+                self.rail_graph, origin_uic, cutoff=max_cost, weight="distance_km"
             )
             for destination_station in destination_stations:
                 destination_uic = destination_station["code_uic"]
