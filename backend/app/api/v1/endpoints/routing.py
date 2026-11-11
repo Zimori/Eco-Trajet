@@ -26,7 +26,7 @@ from ....services.multimodal_engine import (
 class ItineraryRequest(BaseModel):
     """Coordinates of a multimodal itinerary."""
 
-    model_config = ConfigDict(json_schema_extra={
+    model_config = ConfigDict(strict=True, extra="forbid", json_schema_extra={
         "example": {
             "origin": {"lat": 48.8566, "lon": 2.3522},
             "destination": {"lat": 45.764, "lon": 4.8357},
@@ -34,6 +34,8 @@ class ItineraryRequest(BaseModel):
     })
 
     class Coordinate(BaseModel):
+        model_config = ConfigDict(strict=True, extra="forbid")
+
         lat: float = Field(ge=-90, le=90)
         lon: float = Field(ge=-180, le=180)
 
@@ -77,6 +79,8 @@ class ItineraryResponse(BaseModel):
 
 class AgentTripRequest(BaseModel):
     """Raw addresses accepted by the OpenAI function-calling endpoint."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
 
     origin: str = Field(min_length=1, description="Departure address.")
     destination: str = Field(min_length=1, description="Arrival address.")

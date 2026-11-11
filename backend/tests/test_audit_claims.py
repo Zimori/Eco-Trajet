@@ -225,17 +225,26 @@ def test_station_search_can_be_restricted_to_graph_nodes(tmp_path):
     assert restricted[0]["distance_km"] <= restricted[1]["distance_km"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="C1: request models use Pydantic lax mode",
+@pytest.mark.parametrize(
+    "patch",
+    [
+        lambda body: body["origin"].update(lat="48.8566"),
+        lambda body: body.update(unexpected=True),
+        lambda body: body["destination"].update(alt=0),
+    ],
 )
-def test_request_contract_is_strict(tmp_path):
+def test_request_contract_is_strict(tmp_path, patch):
     _, client = _build(tmp_path, OsrmRecorder())
     body = _body(PARIS, LYON)
-    body["origin"]["lat"] = "48.8566"
-    body["unexpected"] = True
+    patch(body)
     response = client.post("/api/v1/routing/multimodal", json=body)
     assert response.status_code == 422
+
+
+def test_integer_coordinates_are_accepted(tmp_path):
+    _, client = _build(tmp_path, OsrmRecorder())
+    response = client.post("/api/v1/routing/multimodal", json=_body((48, 2), LYON))
+    assert response.status_code == 200, response.text
 
 
 @pytest.mark.xfail(
