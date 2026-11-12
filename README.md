@@ -18,7 +18,14 @@ The backend expects these files to be present:
 - `backend/data/sncf_stations.geojson`
 - `backend/data/sncf_stations_network.json`
 
-They are produced by `backend/scripts/seed_data.py`.
+They are produced by `backend/scripts/seed_data.py` (`make seed`, ~10 s) from public open data:
+
+| Source | Used for |
+|---|---|
+| [SNCF GTFS](https://transport.data.gouv.fr/datasets/horaires-sncf) (TGV, Intercités, TER) | rail graph and stations |
+| [ADEME Base Carbone](https://data.ademe.fr/datasets/base-carboner) | emission factors |
+
+`--offline-demo` needs no network: it uses a committed Base Carbone excerpt (`backend/data/samples/`) and a hand-made graph of 9 hubs. The tests use the same demo data.
 
 ## API
 
@@ -52,8 +59,7 @@ curl --noproxy "*" -sS \
   -H 'Content-Type: application/json' \
   -d '{
     "origin": {"lat": 48.8566, "lon": 2.3522},
-    "destination": {"lat": 45.7640, "lon": 4.8357},
-    "preferences": {"max_walking_distance": 1500, "comfort": "standard"}
+    "destination": {"lat": 45.7640, "lon": 4.8357}
   }'
 ```
 
@@ -67,7 +73,7 @@ This endpoint exposes the tool schema for an agent.
 curl --noproxy "*" -sS http://127.0.0.1:8000/api/v1/agent-tools/schema
 ```
 
-The generated schema includes the `calculate_multimodal_trip` function with `origin_lat`, `origin_lon`, `dest_lat`, `dest_lon`, and `preference`.
+The schema describes the `calculate_multimodal_trip` function. Its parameters are generated from the `/api/v1/agent-tools/calculate-trip` request model (`origin` and `destination` addresses).
 
 ## Local setup
 
@@ -92,6 +98,15 @@ npm run dev
 
 ### Docker
 
+Compose runs a self-hosted OSRM on all of France. Build its graph once (download ~4.5 GB, preprocessing peaks above 11 GB RAM, so give WSL/Docker swap). The data lives in `OSRM_DATA_DIR` (default `~/.cache/eco-trajet/osrm`), never in the repo:
+
+```bash
+make osrm-download   # Geofabrik France extract, resumable, md5-checked, writes manifest.json
+make osrm-data       # osrm-extract / partition / customize (MLD, car profile)
+```
+
+Set `OSRM_REGION=europe/france/rhone-alpes` for a smaller extract, and change the `osrm` service command to `rhone-alpes.osrm` to match.
+
 ```bash
 make run
 # or
@@ -102,15 +117,17 @@ docker compose up --build
 
 The project keeps data local and explicit:
 
-- ADEME factors are stored as Parquet
-- station metadata is stored as GeoJSON
-- the rail graph is stored as a NetworkX node-link JSON
+- ADEME factors are extracted from the official Base Carbone export (V23.6, per passenger.km; element ids in `ADEME_FACTORS`, `backend/scripts/seed_data.py`) and stored as Parquet. An element that is missing, not "Valide générique" or not per passenger.km fails the build.
+- the rail graph is built from the SNCF GTFS: one edge per pair of consecutive stops of a rail trip (replacement coaches are dropped), with the median timetabled duration over all trips and the train type (TGV / Intercités / TER) that runs it most. It is stored as a NetworkX node-link JSON (~2,500 stations, ~4,000 edges).
+- the stations of that graph are written as GeoJSON for the spatial index
 
 This avoids a heavier database layer for the first version and keeps the routing pipeline readable.
 
 ## Engineering choices
 
-The rail graph is intentionally compact. A full national rail network would be much larger and slower to load. The current graph focuses on main corridors and major hubs so route resolution stays fast and predictable.
+Rail emissions are computed per edge with the factor of the train type that runs it, so a trip mixing TGV and TER legs is not priced as all-TGV.
+
+The SNCF feed has no shapes, so edge distances are straight lines between consecutive stops. This underestimates rail distance by roughly 8–15% (Paris–Lyon: 391 km vs 427 km by rail).
 
 The ADEME data is also local. The project turns the source values into a Parquet file so lookup stays cheap and does not depend on a remote service.
 
@@ -127,5 +144,6 @@ The frontend uses Jest and needs Node/npm installed in the environment.
 ## Limits
 
 - This is not a full national railway model.
-- The routing graph is intentionally simplified for speed and determinism.
+- Rail distances are straight lines between consecutive stops (see above).
+- The rail path minimises distance, not travel time.
 - The service is built for route calculation and carbon estimates rather than a full transport data warehouse.

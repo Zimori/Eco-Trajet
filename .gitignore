@@ -21,6 +21,8 @@ __pycache__/
 backend/data/*.parquet
 backend/data/*.geojson
 backend/data/*.json
+backend/data/*.csv
+backend/data/*.zip
 !backend/data/.gitkeep
 
 # Next.js
@@ -62,3 +64,4 @@ cypress/screenshots
 
 # Private audit notes
 AUDIT_ISSUES.md
+notes/

@@ -1,10 +1,19 @@
 services:
+  osrm:
+    image: ghcr.io/project-osrm/osrm-backend:v5.27.1
+    # Graph built by `make osrm-data` (backend/scripts/osrm_prepare.sh), kept outside the repo.
+    command: osrm-routed --algorithm mld /data/france.osrm
+    volumes:
+      - ${OSRM_DATA_DIR:-${HOME}/.cache/eco-trajet/osrm}:/data:ro
+    ports:
+      - "5000:5000"
+
   backend:
     build:
       context: ./backend
     environment:
       ROUTING_DATA_DIR: /app/data
-      ADEME_DATABASE_VERSION: Base Carbone V23 (2024)
+      OSRM_BASE_URL: http://osrm:5000
       NEXT_PUBLIC_API_URL: http://localhost:8000
     ports:
       - "8000:8000"
@@ -16,6 +25,8 @@ services:
       [ ! -f /app/data/sncf_stations_network.json ]; then
       python scripts/seed_data.py; fi &&
       uvicorn app.main:app --host 0.0.0.0 --port 8000'
+    depends_on:
+      - osrm
 
   frontend:
     image: node:20-bookworm-slim

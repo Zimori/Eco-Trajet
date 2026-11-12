@@ -2,37 +2,21 @@
 
 from fastapi import APIRouter
 
+from .routing import AgentTripRequest
+
 router = APIRouter(prefix="/api/v1/agent-tools", tags=["agent-tools"])
 
+# Generated from the endpoint's request model so the two cannot drift apart.
 CALCULATE_MULTIMODAL_TRIP_TOOL = {
     "type": "function",
     "function": {
         "name": "calculate_multimodal_trip",
         "description": (
-            "Calculates optimal multimodal route (road + high-speed rail) "
-            "and certified ADEME carbon footprint between origin and destination coordinates."
+            "Calculates a multimodal route (road + high-speed rail) and its carbon "
+            "footprint (ADEME emission factors) between two addresses. "
+            "Call POST /api/v1/agent-tools/calculate-trip with these arguments."
         ),
-        "parameters": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "origin_lat": {"type": "number", "minimum": -90, "maximum": 90},
-                "origin_lon": {"type": "number", "minimum": -180, "maximum": 180},
-                "dest_lat": {"type": "number", "minimum": -90, "maximum": 90},
-                "dest_lon": {"type": "number", "minimum": -180, "maximum": 180},
-                "preference": {
-                    "type": "string",
-                    "enum": ["fastest", "lowest_carbon"],
-                },
-            },
-            "required": [
-                "origin_lat",
-                "origin_lon",
-                "dest_lat",
-                "dest_lon",
-                "preference",
-            ],
-        },
+        "parameters": AgentTripRequest.model_json_schema(),
     },
 }
 

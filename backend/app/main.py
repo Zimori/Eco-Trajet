@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import networkx as nx
@@ -23,32 +25,23 @@ def create_app(
     geocoder: NominatimGeocoder | None = None,
 ) -> FastAPI:
     """Build the application, allowing fully injected test dependencies."""
-    app = FastAPI(
-        title="Eco-Trajet Multimodal Routing API",
-        version=os.getenv("APP_VERSION", "1.0.0"),
-        description="Agent-ready multimodal routing with ADEME carbon metrics.",
-    )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
     settings = Settings.from_env()
     if engine is None:
         engine = _build_engine_from_environment(settings)
     if geocoder is None:
         geocoder = NominatimGeocoder()
 
-    app.include_router(
-        create_routing_router(
-            engine,
-            geocoder,
-            ademe_database_version=settings.ademe_database_version,
-        )
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+        await engine.aclose()
+        await geocoder.aclose()
+
+    app = _base_app(
+        settings, "Agent-ready multimodal routing with ADEME carbon metrics.", lifespan
     )
-    app.include_router(v1_router)
+
+    app.include_router(create_routing_router(engine, geocoder))
 
     @app.get("/health", tags=["operations"], summary="Check backend health")
     async def health() -> dict[str, object]:
@@ -58,6 +51,23 @@ def create_app(
             "version": settings.app_version,
         }
 
+    return app
+
+
+def _base_app(settings: Settings, description: str, lifespan=None) -> FastAPI:
+    app = FastAPI(
+        title="Eco-Trajet Multimodal Routing API",
+        version=settings.app_version,
+        description=description,
+        lifespan=lifespan,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(settings.cors_origins),
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(v1_router)
     return app
 
 
@@ -83,12 +93,10 @@ def _build_engine_from_environment(settings: Settings) -> MultimodalRoutingEngin
     return MultimodalRoutingEngine(
         matcher,
         graph,
-        osrm_base_url=os.getenv(
-            "OSRM_BASE_URL", settings.osrm_base_url
-        ),
+        osrm_base_url=settings.osrm_base_url,
         timeout_seconds=settings.osrm_timeout_seconds,
         max_retries=settings.osrm_max_retries,
-        road_vehicle_type=os.getenv("ROAD_VEHICLE_TYPE", "thermique"),
+        road_vehicle_type=os.getenv("ROAD_VEHICLE_TYPE", "moyenne"),
         rail_vehicle_type=os.getenv("RAIL_VEHICLE_TYPE", "TGV"),
     )
 
@@ -107,23 +115,10 @@ def _load_rail_graph(path: Path) -> nx.Graph:
     return graph
 
 
-try:
-    app = create_app()
-except RuntimeError as exc:
-    _startup_error = str(exc)
-    app = FastAPI(
-        title="Eco-Trajet Multimodal Routing API",
-        version=os.getenv("APP_VERSION", "0.1.0"),
-        description="Unavailable until routing datasets are installed.",
-    )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-    app.include_router(v1_router)
+def _degraded_app(startup_error: str) -> FastAPI:
+    """Serve a 503 health check explaining why the datasets could not load."""
+    settings = Settings.from_env()
+    app = _base_app(settings, "Unavailable until routing datasets are installed.")
 
     @app.get("/health", tags=["operations"], summary="Check backend health")
     async def unavailable_health(response: Response) -> dict[str, object]:
@@ -131,6 +126,14 @@ except RuntimeError as exc:
         return {
             "status": "degraded",
             "datasets_loaded": False,
-            "version": os.getenv("APP_VERSION", "1.0.0"),
-            "detail": _startup_error,
+            "version": settings.app_version,
+            "detail": startup_error,
         }
+
+    return app
+
+
+try:
+    app = create_app()
+except RuntimeError as exc:
+    app = _degraded_app(str(exc))

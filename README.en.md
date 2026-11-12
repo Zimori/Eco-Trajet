@@ -68,13 +68,14 @@ EcoTrajet is a web application that allows users to calculate and compare the ca
 
 ## CO2 Emission Calculation
 
-The application uses emission factors based on ADEME data (French Agency for Environment and Energy Management):
+Factors come from the official [ADEME Base Carbone](https://data.ademe.fr/datasets/base-carboner) (V23.6), in gCO2e per passenger.km. `backend/scripts/seed_data.py` downloads the export and extracts these elements (`ADEME_FACTORS`):
 
-- **Car** : 218 g CO2/km (thermal)
-- **Bus** : 113 g CO2/km (thermal)
-- **Train** : 2.93 g CO2/km (TGV)
-- **Plane** : 259 g CO2/km (short-haul)
-- **Bike/Walking** : 0 g CO2/km (direct emissions)
+| Mode | Base Carbone element | gCO2e/passenger.km |
+|---|---|---|
+| Train, TGV (2022) | 43256 | 2.93 |
+| Train, Intercités (2022) | 43272 | 7.5 |
+| Train, TER (2022) | 43255 | 27.7 |
+| Car, average, mixed use (2023) | 43809 | 160 |
 
 ## Installation and Getting Started
 

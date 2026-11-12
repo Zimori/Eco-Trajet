@@ -12,36 +12,36 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from ....services.multimodal_engine import (
+    EmissionBreakdown,
     ItineraryInputError,
     ItineraryResult,
     MultimodalRoutingEngine,
     RailRoutingError,
+    RailSegment,
+    RailUnavailableReason,
     RoadRoutingError,
+    RoadSegment,
 )
 
 
 class ItineraryRequest(BaseModel):
-    """Coordinates and traveller preferences for a multimodal itinerary."""
+    """Coordinates of a multimodal itinerary."""
 
-    model_config = ConfigDict(json_schema_extra={
+    model_config = ConfigDict(strict=True, extra="forbid", json_schema_extra={
         "example": {
             "origin": {"lat": 48.8566, "lon": 2.3522},
             "destination": {"lat": 45.764, "lon": 4.8357},
-            "preferences": {"max_walking_distance": 1500},
         }
     })
 
     class Coordinate(BaseModel):
+        model_config = ConfigDict(strict=True, extra="forbid")
+
         lat: float = Field(ge=-90, le=90)
         lon: float = Field(ge=-180, le=180)
 
-    class Preferences(BaseModel):
-        max_walking_distance: float | None = Field(default=1500, ge=0)
-        comfort: str | None = Field(default="standard", min_length=1)
-
     origin: Coordinate
     destination: Coordinate
-    preferences: Preferences = Field(default_factory=Preferences)
 
 
 class SegmentDetail(BaseModel):
@@ -68,6 +68,8 @@ class ItineraryMetadata(BaseModel):
     confidence_score: float = Field(ge=0, le=1)
     ademe_database_version: str
     execution_time_ms: float = Field(ge=0)
+    rail_available: bool
+    rail_unavailable_reason: RailUnavailableReason | None = None
 
 
 class ItineraryResponse(BaseModel):
@@ -81,11 +83,10 @@ class ItineraryResponse(BaseModel):
 class AgentTripRequest(BaseModel):
     """Raw addresses accepted by the OpenAI function-calling endpoint."""
 
+    model_config = ConfigDict(strict=True, extra="forbid")
+
     origin: str = Field(min_length=1, description="Departure address.")
     destination: str = Field(min_length=1, description="Arrival address.")
-    preferences: ItineraryRequest.Preferences = Field(
-        default_factory=ItineraryRequest.Preferences
-    )
 
 
 class AgentTripSummary(BaseModel):
@@ -100,6 +101,8 @@ class AgentTripSummary(BaseModel):
     total_co2_grams: float
     modes: list[str]
     matching_reliability_score: float
+    rail_available: bool
+    rail_unavailable_reason: RailUnavailableReason | None = None
 
 
 class Geocoder(Protocol):
@@ -114,14 +117,15 @@ class NominatimGeocoder:
         client: httpx.AsyncClient | None = None,
         base_url: str = "https://nominatim.openstreetmap.org/search",
     ) -> None:
-        self.client = client
+        self.client = client or httpx.AsyncClient(timeout=10)
         self.base_url = base_url
 
+    async def aclose(self) -> None:
+        await self.client.aclose()
+
     async def geocode(self, address: str) -> tuple[float, float]:
-        owns_client = self.client is None
-        client = self.client or httpx.AsyncClient(timeout=10)
         try:
-            response = await client.get(
+            response = await self.client.get(
                 self.base_url,
                 params={"q": address, "format": "jsonv2", "limit": 1},
                 headers={"User-Agent": "Eco-Trajet/1.0"},
@@ -133,19 +137,15 @@ class NominatimGeocoder:
             return float(results[0]["lat"]), float(results[0]["lon"])
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
             raise ValueError(f"Unable to geocode address {address!r}.") from exc
-        finally:
-            if owns_client:
-                await client.aclose()
 
 
 def create_routing_router(
     engine: MultimodalRoutingEngine,
     geocoder: Geocoder,
-    *,
-    ademe_database_version: str = "unknown",
 ) -> APIRouter:
     """Create an isolated router with explicit engine and geocoder dependencies."""
     router = APIRouter()
+    ademe_database_version = engine.matcher.database_version
 
     def get_engine() -> MultimodalRoutingEngine:
         return engine
@@ -162,7 +162,7 @@ def create_routing_router(
             "with OSRM, and computes the shortest rail path with ADEME carbon metrics."
         ),
         responses={
-            422: {"description": "Invalid coordinates or preferences."},
+            422: {"description": "Invalid coordinates."},
             502: {"description": "Routing provider or railway graph failure."},
         },
     )
@@ -174,18 +174,9 @@ def create_routing_router(
             started_at = time.perf_counter()
             origin = (request.origin.lat, request.origin.lon)
             destination = (request.destination.lat, request.destination.lon)
-            result = await routing_engine.resolve_full_multimodal_itinerary(
-                origin,
-                destination,
-                max_walking_distance=request.preferences.max_walking_distance,
-            )
+            result = await routing_engine.resolve_full_multimodal_itinerary(origin, destination)
             return _to_response(
-                result,
-                routing_engine,
-                origin,
-                destination,
-                ademe_database_version,
-                (time.perf_counter() - started_at) * 1000,
+                result, ademe_database_version, (time.perf_counter() - started_at) * 1000
             )
         except (ItineraryInputError, ValueError) as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
@@ -212,25 +203,21 @@ def create_routing_router(
     ) -> AgentTripSummary:
         try:
             started_at = time.perf_counter()
-            origin, destination = await _geocode_pair(
-                address_geocoder, request.origin, request.destination
+            origin, destination = await asyncio.gather(
+                address_geocoder.geocode(request.origin),
+                address_geocoder.geocode(request.destination),
             )
-            result = await routing_engine.resolve_full_multimodal_itinerary(
-                origin,
-                destination,
-                max_walking_distance=request.preferences.max_walking_distance,
-            )
+            result = await routing_engine.resolve_full_multimodal_itinerary(origin, destination)
         except (ValueError, ItineraryInputError) as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         except (RoadRoutingError, RailRoutingError) as exc:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
         response = _to_response(
-            result,
-            routing_engine,
-            origin,
-            destination,
-            ademe_database_version,
-            (time.perf_counter() - started_at) * 1000,
+            result, ademe_database_version, (time.perf_counter() - started_at) * 1000
+        )
+        metadata = response.metadata
+        no_rail = (
+            "" if metadata.rail_available else f"; no rail ({metadata.rail_unavailable_reason})"
         )
         return AgentTripSummary(
             status="ok",
@@ -239,72 +226,47 @@ def create_routing_router(
             summary=(
                 f"{', '.join(segment.mode for segment in response.segments)}; "
                 f"{response.totals.distance_totale:.0f} m, "
-                f"{response.totals.co2_total:.1f} gCO2e."
+                f"{response.totals.co2_total:.1f} gCO2e{no_rail}."
             ),
             total_distance_m=response.totals.distance_totale,
             total_duration_s=response.totals.temps_total,
             total_co2_grams=response.totals.co2_total,
             modes=[segment.mode for segment in response.segments],
-            matching_reliability_score=response.metadata.matching_reliability_score,
+            matching_reliability_score=metadata.matching_reliability_score,
+            rail_available=metadata.rail_available,
+            rail_unavailable_reason=metadata.rail_unavailable_reason,
         )
 
     return router
 
 
-async def _geocode_pair(
-    geocoder: Geocoder, origin: str, destination: str
-) -> tuple[tuple[float, float], tuple[float, float]]:
-    return await asyncio.gather(
-        geocoder.geocode(origin), geocoder.geocode(destination)
+def _segment(
+    leg: RoadSegment | RailSegment, mode: str, emission: EmissionBreakdown
+) -> SegmentDetail:
+    return SegmentDetail(
+        mode=mode,
+        distance_m=leg.distance_km * 1000,
+        duration_s=leg.duration_minutes * 60,
+        co2_grams=emission.emissions_gco2e,
+        geometry=leg.geometry,
     )
 
 
 def _to_response(
-    result: ItineraryResult,
-    engine: MultimodalRoutingEngine,
-    origin: tuple[float, float],
-    destination: tuple[float, float],
-    ademe_database_version: str,
-    execution_time_ms: float,
+    result: ItineraryResult, ademe_database_version: str, execution_time_ms: float
 ) -> ItineraryResponse:
-    segments = [
-        SegmentDetail(
-            mode=result.access.mode,
-            distance_m=result.access.distance_km * 1000,
-            duration_s=result.access.duration_minutes * 60,
-            co2_grams=result.emissions[0].emissions_gco2e,
-            geometry=result.access.geometry,
-        ),
-    ]
+    access_co2 = result.emissions[0]
+    segments = [_segment(result.access, result.access.mode, access_co2)]
+    reliability = 0.0
     if result.rail is not None and result.egress is not None:
-        segments.extend(
-            [
-                SegmentDetail(
-                    mode="train",
-                    distance_m=result.rail.distance_km * 1000,
-                    duration_s=result.rail.duration_minutes * 60,
-                    co2_grams=result.emissions[1].emissions_gco2e,
-                    geometry=result.rail.geometry,
-                ),
-                SegmentDetail(
-                    mode=result.egress.mode,
-                    distance_m=result.egress.distance_km * 1000,
-                    duration_s=result.egress.duration_minutes * 60,
-                    co2_grams=result.emissions[2].emissions_gco2e,
-                    geometry=result.egress.geometry,
-                ),
-            ]
-        )
-    if result.rail is None:
-        reliability = 0.0
-    else:
-        origin_match = engine.matcher.find_nearest_station(*origin)
-        destination_match = engine.matcher.find_nearest_station(*destination)
-        reliability = 1.0 - min(
-            1.0,
-            (float(origin_match["distance_km"]) + float(destination_match["distance_km"]))
-            / 60.0,
-        )
+        _, rail_co2, egress_co2 = result.emissions
+        segments += [
+            _segment(result.rail, "train", rail_co2),
+            _segment(result.egress, result.egress.mode, egress_co2),
+        ]
+        station_km = result.origin_station_distance_km + result.destination_station_distance_km
+        reliability = max(0.0, 1.0 - station_km / 60.0)
+    reliability = round(reliability, 3)
     return ItineraryResponse(
         segments=segments,
         totals=CarbonMetrics(
@@ -314,9 +276,11 @@ def _to_response(
         ),
         metadata=ItineraryMetadata(
             timestamp=datetime.now(UTC),
-            matching_reliability_score=round(reliability, 3),
-            confidence_score=round(reliability, 3),
+            matching_reliability_score=reliability,
+            confidence_score=reliability,
             ademe_database_version=ademe_database_version,
             execution_time_ms=round(execution_time_ms, 3),
+            rail_available=result.rail is not None,
+            rail_unavailable_reason=result.rail_unavailable_reason,
         ),
     )

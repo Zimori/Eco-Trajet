@@ -1,8 +1,10 @@
 """Seed the reproducible ADEME, SNCF and rail-network runtime datasets.
 
-The SNCF export is downloaded from the public data endpoint by default. Use
-``--offline-demo`` only for local demos without network access; that mode
-creates the same normalized schema with the documented hub stations.
+ADEME factors and the SNCF GTFS timetable are downloaded from the public
+open-data endpoints by default; the rail graph and its stations are built from
+the timetable. ``--offline-demo``
+works without network access: it reads a committed excerpt of the Base Carbone
+and uses a hand-made graph of the main hubs (also used by the tests).
 """
 
 from __future__ import annotations
@@ -10,17 +12,30 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import zipfile
 from pathlib import Path
 from urllib.request import Request, urlopen
 
 import networkx as nx
+import numpy as np
 import pandas as pd
 
-SNCF_EXPORT_URL = (
-    "https://ressources.data.sncf.com/api/explore/v2.1/catalog/datasets/"
-    "liste-des-gares/exports/geojson"
+SNCF_GTFS_URL = (
+    "https://eu.ftp.opendatasoft.com/sncf/plandata/Export_OpenData_SNCF_GTFS_NewTripId.zip"
 )
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+GTFS_RAIL_ROUTE_TYPE = "2"
+# Replacement coaches and shuttles run under rail routes; their trips are dropped.
+GTFS_ROAD_SERVICES = ("Car TER", "Car à réservation", "Navette")
+# GTFS StopPoint prefix -> ADEME train vehicle type; anything else is regional (TER).
+GTFS_SERVICES = {
+    "TGV INOUI": "TGV",
+    "OUIGO": "TGV",
+    "ICE": "TGV",
+    "Lyria": "TGV",
+    "INTERCITES": "Intercités",
+    "INTERCITES de nuit": "Intercités",
+}
 
 HUBS = {
     "Paris Gare de Lyon": ("87686006", 48.8443, 2.3730),
@@ -34,6 +49,18 @@ HUBS = {
     "Nantes": ("87481002", 47.2172, -1.5420),
 }
 
+BASE_CARBONE_DATASET_URL = "https://data.ademe.fr/data-fair/api/v1/datasets/base-carboner"
+BASE_CARBONE_SAMPLE = DATA_DIR / "samples/Base_Carbone_V23.6.csv"
+# (mode, vehicle_type, Base Carbone element id); all per passenger.km.
+ADEME_FACTORS = (
+    ("train", "TGV", "43256"),
+    ("train", "Intercités", "43272"),
+    ("train", "TER", "43255"),
+    ("voiture", "moyenne", "43809"),
+    ("voiture", "essence", "43797"),
+    ("voiture", "gazole", "43800"),
+)
+
 EDGES = (
     ("87686006", "87723197", 427, 7080),
     ("87391003", "87581009", 585, 12600),
@@ -46,82 +73,42 @@ EDGES = (
 )
 
 
-def build_ademe_dataset(path: Path) -> None:
-    rows = [
-        ("ademe-tgv-v23", "train", "TGV", 0.00293),
-        ("ademe-intercites-v23", "train", "Intercités", 0.00860),
-        ("ademe-ter-v23", "train", "TER", 0.02480),
-        ("ademe-car-thermal-v23", "voiture", "thermique", 0.218),
-        ("ademe-car-electric-v23", "voiture", "electrique", 0.103),
-        ("ademe-bus-v23", "bus", "thermique", 0.113),
-        ("ademe-walk-v23", "marche", "marche", 0.0),
-    ]
+def build_ademe_dataset(path: Path, base_carbone_csv: Path | None = None) -> None:
+    """Extract the factors listed in ADEME_FACTORS from the official Base Carbone CSV."""
+    if base_carbone_csv is None:
+        base_carbone_csv, version = _download_base_carbone(path.parent)
+    else:
+        version = base_carbone_csv.stem
+    base = pd.read_csv(base_carbone_csv, sep=";", encoding="latin-1", decimal=",", dtype=str)
+    elements = base[base["Type Ligne"] == "Elément"].set_index("Identifiant de l'élément")
+
+    rows = []
+    for mode, vehicle_type, ademe_id in ADEME_FACTORS:
+        if ademe_id not in elements.index:
+            raise RuntimeError(f"ADEME element {ademe_id} is missing from {base_carbone_csv}.")
+        element = elements.loc[ademe_id]
+        status, unit = element["Statut de l'élément"], element["Unité français"]
+        if status != "Valide générique" or unit != "kgCO2e/passager.km":
+            raise RuntimeError(f"ADEME element {ademe_id} is {status!r} in {unit!r}.")
+        value = float(element["Total poste non décomposé"].replace(",", "."))
+        rows.append((ademe_id, mode, vehicle_type, value, unit, element["Nom base français"]))
+
     frame = pd.DataFrame(
-        rows,
-        columns=["id_ademe", "mode", "sub_mode", "emission_factor"],
+        rows, columns=["id_ademe", "mode", "vehicle_type", "emission_factor", "unit", "ademe_name"]
     )
-    frame["vehicle_type"] = frame["sub_mode"]
-    frame["unit"] = "kgCO2e/p.km"
-    frame["source"] = "ADEME Base Carbone V23 (2024)"
+    frame["source"] = f"ADEME {version}"
     frame.to_parquet(path, index=False)
 
 
-def download_stations(path: Path, offline_demo: bool) -> None:
-    if offline_demo:
-        features = []
-    else:
-        request = Request(SNCF_EXPORT_URL, headers={"User-Agent": "Eco-Trajet/1.0"})
-        try:
-            with urlopen(request, timeout=60) as response:
-                payload = json.load(response)
-            features = payload.get("features", [])
-        except Exception as exc:
-            raise RuntimeError(
-                "Unable to download the SNCF station export. Re-run with "
-                "--offline-demo for a deterministic local dataset."
-            ) from exc
-
-    normalized = []
-    seen_uic: set[str] = set()
-    for feature in features:
-        properties = feature.get("properties") or {}
-        geometry = feature.get("geometry")
-        if not geometry or geometry.get("type") != "Point":
-            continue
-        name = _first_value(properties, "name", "nom", "libelle", "nom_gare")
-        uic = _first_value(properties, "uic", "code_uic", "uic_code", "code")
-        if name and uic and str(uic) not in seen_uic:
-            normalized.append(
-                {
-                    "type": "Feature",
-                    "properties": {"name": str(name), "code_uic": str(uic)},
-                    "geometry": geometry,
-                }
-            )
-            seen_uic.add(str(uic))
-
-    for name, (uic, lat, lon) in HUBS.items():
-        if uic not in seen_uic:
-            normalized.append(
-                {
-                    "type": "Feature",
-                    "properties": {"name": name, "code_uic": uic},
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [lon, lat],
-                    },
-                }
-            )
-    path.write_text(
-        json.dumps(
-            {"type": "FeatureCollection", "features": normalized},
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
+def _download_base_carbone(directory: Path) -> tuple[Path, str]:
+    with urlopen(f"{BASE_CARBONE_DATASET_URL}/data-files", timeout=30) as response:
+        data_file = json.load(response)[0]
+    target = _download(data_file["url"], directory / data_file["name"])
+    return target, target.stem
 
 
-def build_rail_graph(path: Path) -> None:
+def build_rail_graph(path: Path) -> nx.Graph:
+    """Hand-made graph of the main hubs, for offline demos and tests."""
     graph = nx.Graph()
     for name, (uic, lat, lon) in HUBS.items():
         graph.add_node(uic, name=name, lat=lat, lon=lon)
@@ -132,22 +119,116 @@ def build_rail_graph(path: Path) -> None:
             distance_km=distance_km,
             duration_seconds=duration_seconds,
         )
+    path.write_text(json.dumps(nx.node_link_data(graph), ensure_ascii=False), encoding="utf-8")
+    return graph
+
+
+def write_stations(path: Path, graph: nx.Graph) -> None:
+    """Write the graph stations as GeoJSON, the input of the spatial index."""
+    features = [
+        {
+            "type": "Feature",
+            "properties": {"name": node["name"], "code_uic": uic},
+            "geometry": {"type": "Point", "coordinates": [node["lon"], node["lat"]]},
+        }
+        for uic, node in graph.nodes(data=True)
+    ]
     path.write_text(
-        json.dumps(nx.node_link_data(graph), ensure_ascii=False, indent=2),
+        json.dumps({"type": "FeatureCollection", "features": features}, ensure_ascii=False),
         encoding="utf-8",
     )
 
 
-def _first_value(properties: dict, *names: str) -> object:
-    normalized = {
-        "".join(character for character in str(key).lower() if character.isalnum()): value
-        for key, value in properties.items()
-    }
-    for name in names:
-        value = normalized.get("".join(character for character in name if character.isalnum()))
-        if value not in (None, ""):
-            return value
-    return None
+def build_rail_graph_from_gtfs(path: Path, gtfs_zip: Path) -> nx.Graph:
+    """Build the station graph from consecutive stops of every rail trip.
+
+    Edge duration is the median timetabled time over all trips (both
+    directions); distance is the straight line between the two stations, since
+    the SNCF feed has no shapes. Edge ``service`` is the most frequent train type.
+    """
+    with zipfile.ZipFile(gtfs_zip) as feed:
+        stops = pd.read_csv(feed.open("stops.txt"), dtype=str)
+        routes = pd.read_csv(feed.open("routes.txt"), dtype=str)
+        trips = pd.read_csv(feed.open("trips.txt"), dtype=str)
+        stop_times = pd.read_csv(
+            feed.open("stop_times.txt"),
+            usecols=["trip_id", "arrival_time", "departure_time", "stop_id", "stop_sequence"],
+            dtype={"trip_id": str, "arrival_time": str, "departure_time": str, "stop_id": str},
+        )
+
+    rail_routes = routes.loc[routes["route_type"] == GTFS_RAIL_ROUTE_TYPE, "route_id"]
+    rail_trips = trips.loc[trips["route_id"].isin(rail_routes), "trip_id"]
+    calls = stop_times[stop_times["trip_id"].isin(rail_trips)].sort_values(
+        ["trip_id", "stop_sequence"]
+    )
+    stop_type = calls["stop_id"].str.extract(r"^StopPoint:OCE(.+)-\d{8}$")[0]
+    road_trips = calls.loc[stop_type.isin(GTFS_ROAD_SERVICES), "trip_id"]
+    calls = calls.assign(service=stop_type.map(GTFS_SERVICES).fillna("TER"))
+    calls = calls[~calls["trip_id"].isin(road_trips)]
+    parent_station = stops.set_index("stop_id")["parent_station"]
+    calls["uic"] = calls["stop_id"].map(parent_station).str.removeprefix("StopArea:OCE")
+    following = calls.groupby("trip_id")[["uic", "arrival_time"]].shift(-1)
+    legs = pd.DataFrame(
+        {
+            "source": calls["uic"],
+            "target": following["uic"],
+            "duration_seconds": _gtfs_seconds(following["arrival_time"])
+            - _gtfs_seconds(calls["departure_time"]),
+            "service": calls["service"],
+        }
+    ).dropna()
+    legs = legs[(legs["source"] != legs["target"]) & (legs["duration_seconds"] >= 0)]
+    # Undirected graph: both travel directions share one edge.
+    forward = legs["source"] < legs["target"]
+    legs["a"] = legs["source"].where(forward, legs["target"])
+    legs["b"] = legs["target"].where(forward, legs["source"])
+    edges = legs.groupby(["a", "b"]).agg(
+        duration_seconds=("duration_seconds", "median"),
+        service=("service", lambda services: services.mode().iloc[0]),
+    )
+
+    areas = stops[stops["stop_id"].str.startswith("StopArea:OCE")].copy()
+    areas["uic"] = areas["stop_id"].str.removeprefix("StopArea:OCE")
+    areas = areas.set_index("uic")
+    used = sorted(set(edges.index.get_level_values("a")) | set(edges.index.get_level_values("b")))
+    missing = set(used) - set(areas.index)
+    if missing:
+        raise RuntimeError(f"GTFS stop areas missing for {len(missing)} stations, e.g. {min(missing)}.")
+
+    graph = nx.Graph()
+    for uic in used:
+        area = areas.loc[uic]
+        graph.add_node(uic, name=area["stop_name"], lat=float(area["stop_lat"]), lon=float(area["stop_lon"]))
+    for (a, b), edge in edges.iterrows():
+        distance_km = _haversine_km(graph.nodes[a], graph.nodes[b])
+        graph.add_edge(
+            a,
+            b,
+            distance_km=round(distance_km, 3),
+            duration_seconds=float(edge["duration_seconds"]),
+            service=edge["service"],
+        )
+    path.write_text(json.dumps(nx.node_link_data(graph), ensure_ascii=False), encoding="utf-8")
+    return graph
+
+
+def _gtfs_seconds(times: pd.Series) -> pd.Series:
+    # GTFS times can exceed 24:00:00 for trips running past midnight.
+    parts = times.str.split(":", expand=True).astype(float)
+    return parts[0] * 3600 + parts[1] * 60 + parts[2]
+
+
+def _haversine_km(a: dict, b: dict) -> float:
+    lat1, lon1, lat2, lon2 = map(np.radians, (a["lat"], a["lon"], b["lat"], b["lon"]))
+    h = np.sin((lat2 - lat1) / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin((lon2 - lon1) / 2) ** 2
+    return float(2 * 6371.0088 * np.arcsin(np.sqrt(h)))
+
+
+def _download(url: str, target: Path) -> Path:
+    request = Request(url, headers={"User-Agent": "Eco-Trajet/1.0"})
+    with urlopen(request, timeout=300) as response:
+        target.write_bytes(response.read())
+    return target
 
 
 def main() -> int:
@@ -155,14 +236,24 @@ def main() -> int:
     parser.add_argument(
         "--offline-demo",
         action="store_true",
-        help="Skip the SNCF download and generate a deterministic hub dataset.",
+        help="Skip downloads: Base Carbone excerpt and hand-made hub graph.",
     )
+    parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     args = parser.parse_args()
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    build_ademe_dataset(DATA_DIR / "ademe_base_empreinte.parquet")
-    download_stations(DATA_DIR / "sncf_stations.geojson", args.offline_demo)
-    build_rail_graph(DATA_DIR / "sncf_stations_network.json")
-    print(f"Seeded routing datasets in {DATA_DIR}")
+    data_dir = args.data_dir
+    data_dir.mkdir(parents=True, exist_ok=True)
+    build_ademe_dataset(
+        data_dir / "ademe_base_empreinte.parquet",
+        BASE_CARBONE_SAMPLE if args.offline_demo else None,
+    )
+    graph_path = data_dir / "sncf_stations_network.json"
+    if args.offline_demo:
+        graph = build_rail_graph(graph_path)
+    else:
+        gtfs = _download(SNCF_GTFS_URL, data_dir / "sncf_gtfs.zip")
+        graph = build_rail_graph_from_gtfs(graph_path, gtfs)
+    write_stations(data_dir / "sncf_stations.geojson", graph)
+    print(f"Seeded routing datasets in {data_dir}")
     return 0
 
 

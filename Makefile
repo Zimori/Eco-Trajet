@@ -1,4 +1,4 @@
-.PHONY: seed test backend-test frontend-test run
+.PHONY: seed test backend-test frontend-test run osrm-download osrm-data
 
 seed:
 	python backend/scripts/seed_data.py
@@ -13,3 +13,9 @@ test: backend-test frontend-test
 
 run:
 	docker compose up --build
+
+osrm-download:
+	backend/scripts/osrm_prepare.sh download
+
+osrm-data:
+	backend/scripts/osrm_prepare.sh build

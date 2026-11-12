@@ -1,12 +1,17 @@
+import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import _degraded_app, app, create_app
 
 
-def test_health_reports_dataset_state():
-    response = TestClient(app).get("/health")
-    assert response.status_code in (200, 503)
-    assert response.json()["status"] in ("healthy", "degraded")
+def test_health_is_degraded_when_datasets_are_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("ROUTING_DATA_DIR", str(tmp_path))
+    with pytest.raises(RuntimeError, match="Missing files") as exc:
+        create_app()
+    response = TestClient(_degraded_app(str(exc.value))).get("/health")
+    assert response.status_code == 503
+    assert response.json()["status"] == "degraded"
+    assert "Missing files" in response.json()["detail"]
 
 
 def test_cors_preflight_is_accepted():
@@ -32,3 +37,11 @@ def test_agent_tool_schema_is_openai_compatible():
     body = response.json()
     assert body["type"] == "function"
     assert body["function"]["name"] == "calculate_multimodal_trip"
+
+
+def test_cors_rejects_unlisted_origin():
+    response = TestClient(app).options(
+        "/api/v1/routing/multimodal",
+        headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST"},
+    )
+    assert "access-control-allow-origin" not in response.headers
