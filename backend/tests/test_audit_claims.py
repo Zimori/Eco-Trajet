@@ -277,3 +277,15 @@ def test_health_is_healthy_with_datasets(tmp_path):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
+
+
+def test_osrm_client_is_shared_and_closed_on_shutdown(tmp_path):
+    osrm = OsrmRecorder()
+    engine, _ = _build(tmp_path, osrm)
+    shared = engine._client
+    with TestClient(create_app(engine=engine)) as client:
+        for _ in range(2):
+            client.post("/api/v1/routing/multimodal", json=_body(PARIS, LYON))
+        assert engine._client is shared and not shared.is_closed
+    assert len(osrm.urls) == 4
+    assert shared.is_closed

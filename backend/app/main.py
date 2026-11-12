@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import networkx as nx
@@ -24,11 +26,20 @@ def create_app(
 ) -> FastAPI:
     """Build the application, allowing fully injected test dependencies."""
     settings = Settings.from_env()
-    app = _base_app(settings, "Agent-ready multimodal routing with ADEME carbon metrics.")
     if engine is None:
         engine = _build_engine_from_environment(settings)
     if geocoder is None:
         geocoder = NominatimGeocoder()
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        yield
+        await engine.aclose()
+        await geocoder.aclose()
+
+    app = _base_app(
+        settings, "Agent-ready multimodal routing with ADEME carbon metrics.", lifespan
+    )
 
     app.include_router(create_routing_router(engine, geocoder))
 
@@ -43,11 +54,12 @@ def create_app(
     return app
 
 
-def _base_app(settings: Settings, description: str) -> FastAPI:
+def _base_app(settings: Settings, description: str, lifespan=None) -> FastAPI:
     app = FastAPI(
         title="Eco-Trajet Multimodal Routing API",
         version=settings.app_version,
         description=description,
+        lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,

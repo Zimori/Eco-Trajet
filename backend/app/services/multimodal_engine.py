@@ -140,7 +140,8 @@ class MultimodalRoutingEngine:
         self.osrm_base_url = osrm_base_url.rstrip("/")
         self.timeout = httpx.Timeout(timeout_seconds)
         self.max_retries = max_retries
-        self._client = client
+        # One pooled client for every OSRM call; close it with aclose().
+        self._client = client or httpx.AsyncClient(timeout=self.timeout)
         self.road_mode = road_mode
         self.road_vehicle_type = road_vehicle_type
         self.rail_vehicle_type = rail_vehicle_type
@@ -148,6 +149,9 @@ class MultimodalRoutingEngine:
         self.max_rail_detour_ratio = max_rail_detour_ratio
         # Only stations that exist in the rail graph can start or end a rail leg.
         self._rail_nodes = frozenset(str(node) for node in rail_graph.nodes)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     async def get_road_segment(
         self,
@@ -162,17 +166,11 @@ class MultimodalRoutingEngine:
         if profile is None:
             raise ItineraryInputError(f"Unsupported road mode: {mode!r}.")
 
-        owns_client = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=self.timeout)
         url = (
             f"{self.osrm_base_url}/route/v1/{profile}/"
             f"{origin[1]},{origin[0]};{dest[1]},{dest[0]}"
         )
-        try:
-            response = await self._request_with_retries(client, url)
-        finally:
-            if owns_client:
-                await client.aclose()
+        response = await self._request_with_retries(self._client, url)
         try:
             payload = response.json()
             route = payload["routes"][0]

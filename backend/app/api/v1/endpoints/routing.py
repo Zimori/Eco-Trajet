@@ -112,14 +112,15 @@ class NominatimGeocoder:
         client: httpx.AsyncClient | None = None,
         base_url: str = "https://nominatim.openstreetmap.org/search",
     ) -> None:
-        self.client = client
+        self.client = client or httpx.AsyncClient(timeout=10)
         self.base_url = base_url
 
+    async def aclose(self) -> None:
+        await self.client.aclose()
+
     async def geocode(self, address: str) -> tuple[float, float]:
-        owns_client = self.client is None
-        client = self.client or httpx.AsyncClient(timeout=10)
         try:
-            response = await client.get(
+            response = await self.client.get(
                 self.base_url,
                 params={"q": address, "format": "jsonv2", "limit": 1},
                 headers={"User-Agent": "Eco-Trajet/1.0"},
@@ -131,9 +132,6 @@ class NominatimGeocoder:
             return float(results[0]["lat"]), float(results[0]["lon"])
         except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as exc:
             raise ValueError(f"Unable to geocode address {address!r}.") from exc
-        finally:
-            if owns_client:
-                await client.aclose()
 
 
 def create_routing_router(
