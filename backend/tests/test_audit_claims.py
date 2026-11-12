@@ -10,6 +10,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.v1.endpoints.routing import NominatimGeocoder
 from app.main import _load_rail_graph, create_app
 from app.services.entity_matcher import (
     AmbiguousEmissionFactorError,
@@ -298,3 +299,31 @@ def test_osrm_client_is_shared_and_closed_on_shutdown(tmp_path):
         assert engine._client is shared and not shared.is_closed
     assert len(osrm.urls) == 4
     assert shared.is_closed
+
+
+def test_agent_summary_says_when_rail_is_unavailable(tmp_path):
+    places = {"Paris": PARIS, "Berlin": (52.52, 13.405), "Lyon": LYON}
+
+    def nominatim(request: httpx.Request) -> httpx.Response:
+        lat, lon = places[request.url.params["q"]]
+        return httpx.Response(200, json=[{"lat": str(lat), "lon": str(lon)}])
+
+    engine, _ = _build(tmp_path, OsrmRecorder())
+    geocoder = NominatimGeocoder(httpx.AsyncClient(transport=httpx.MockTransport(nominatim)))
+    client = TestClient(create_app(engine=engine, geocoder=geocoder))
+
+    def trip(destination):
+        response = client.post(
+            "/api/v1/agent-tools/calculate-trip",
+            json={"origin": "Paris", "destination": destination},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    berlin = trip("Berlin")
+    assert berlin["rail_available"] is False
+    assert berlin["rail_unavailable_reason"] == "outside_rail_coverage"
+    assert "no rail (outside_rail_coverage)" in berlin["summary"]
+    lyon = trip("Lyon")
+    assert lyon["rail_available"] is True
+    assert "no rail" not in lyon["summary"]

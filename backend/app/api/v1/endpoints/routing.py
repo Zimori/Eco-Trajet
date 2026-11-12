@@ -101,6 +101,8 @@ class AgentTripSummary(BaseModel):
     total_co2_grams: float
     modes: list[str]
     matching_reliability_score: float
+    rail_available: bool
+    rail_unavailable_reason: RailUnavailableReason | None = None
 
 
 class Geocoder(Protocol):
@@ -213,6 +215,10 @@ def create_routing_router(
         response = _to_response(
             result, ademe_database_version, (time.perf_counter() - started_at) * 1000
         )
+        metadata = response.metadata
+        no_rail = (
+            "" if metadata.rail_available else f"; no rail ({metadata.rail_unavailable_reason})"
+        )
         return AgentTripSummary(
             status="ok",
             origin=request.origin,
@@ -220,13 +226,15 @@ def create_routing_router(
             summary=(
                 f"{', '.join(segment.mode for segment in response.segments)}; "
                 f"{response.totals.distance_totale:.0f} m, "
-                f"{response.totals.co2_total:.1f} gCO2e."
+                f"{response.totals.co2_total:.1f} gCO2e{no_rail}."
             ),
             total_distance_m=response.totals.distance_totale,
             total_duration_s=response.totals.temps_total,
             total_co2_grams=response.totals.co2_total,
             modes=[segment.mode for segment in response.segments],
-            matching_reliability_score=response.metadata.matching_reliability_score,
+            matching_reliability_score=metadata.matching_reliability_score,
+            rail_available=metadata.rail_available,
+            rail_unavailable_reason=metadata.rail_unavailable_reason,
         )
 
     return router
