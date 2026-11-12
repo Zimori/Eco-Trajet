@@ -98,6 +98,15 @@ npm run dev
 
 ### Docker
 
+Compose runs a self-hosted OSRM on all of France. Build its graph once (download ~4.5 GB, preprocessing peaks above 11 GB RAM, so give WSL/Docker swap). The data lives in `OSRM_DATA_DIR` (default `~/.cache/eco-trajet/osrm`), never in the repo:
+
+```bash
+make osrm-download   # Geofabrik France extract, resumable, md5-checked, writes manifest.json
+make osrm-data       # osrm-extract / partition / customize (MLD, car profile)
+```
+
+Set `OSRM_REGION=europe/france/rhone-alpes` for a smaller extract, and change the `osrm` service command to `rhone-alpes.osrm` to match.
+
 ```bash
 make run
 # or
