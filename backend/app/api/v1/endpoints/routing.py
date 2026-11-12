@@ -18,6 +18,7 @@ from ....services.multimodal_engine import (
     MultimodalRoutingEngine,
     RailRoutingError,
     RailSegment,
+    RailUnavailableReason,
     RoadRoutingError,
     RoadSegment,
 )
@@ -67,6 +68,8 @@ class ItineraryMetadata(BaseModel):
     confidence_score: float = Field(ge=0, le=1)
     ademe_database_version: str
     execution_time_ms: float = Field(ge=0)
+    rail_available: bool
+    rail_unavailable_reason: RailUnavailableReason | None = None
 
 
 class ItineraryResponse(BaseModel):
@@ -269,5 +272,7 @@ def _to_response(
             confidence_score=reliability,
             ademe_database_version=ademe_database_version,
             execution_time_ms=round(execution_time_ms, 3),
+            rail_available=result.rail is not None,
+            rail_unavailable_reason=result.rail_unavailable_reason,
         ),
     )

@@ -6,7 +6,7 @@ import asyncio
 import itertools
 import math
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import networkx as nx
@@ -64,6 +64,9 @@ class RailSegment(BaseModel):
     geometry: dict[str, Any] | None = None
 
 
+RailUnavailableReason = Literal["short_trip", "outside_rail_coverage", "no_rail_route"]
+
+
 class EmissionBreakdown(BaseModel):
     """Emissions for one itinerary segment."""
 
@@ -89,6 +92,7 @@ class ItineraryResult(BaseModel):
     total_emissions_gco2e: float = Field(ge=0)
     origin_station_distance_km: float | None = Field(default=None, ge=0)
     destination_station_distance_km: float | None = Field(default=None, ge=0)
+    rail_unavailable_reason: RailUnavailableReason | None = None
 
 
 class MultimodalRoutingEngine:
@@ -261,16 +265,14 @@ class MultimodalRoutingEngine:
         self._validate_coordinate_pair(origin, "origin")
         self._validate_coordinate_pair(destination, "destination")
         if self._coordinate_distance_km(origin, destination) <= 15:
-            direct = await self.get_road_segment(origin, destination, self.road_mode)
-            return self._road_only_result(origin, destination, direct)
+            return await self._road_only_result(origin, destination, "short_trip")
 
         try:
             station_pair = self._select_station_pair(origin, destination)
         except InvalidCoordinatesError:  # outside Lambert-93: no SNCF rail, road only
-            station_pair = None
+            return await self._road_only_result(origin, destination, "outside_rail_coverage")
         if station_pair is None:
-            direct = await self.get_road_segment(origin, destination, self.road_mode)
-            return self._road_only_result(origin, destination, direct)
+            return await self._road_only_result(origin, destination, "no_rail_route")
         origin_station, destination_station = station_pair
         origin_uic = origin_station["code_uic"]
         destination_uic = destination_station["code_uic"]
@@ -339,12 +341,13 @@ class MultimodalRoutingEngine:
                     best_pair, best_cost = (origin_station, destination_station), cost
         return best_pair
 
-    def _road_only_result(
+    async def _road_only_result(
         self,
         origin: tuple[float, float],
         destination: tuple[float, float],
-        road: RoadSegment,
+        reason: RailUnavailableReason,
     ) -> ItineraryResult:
+        road = await self.get_road_segment(origin, destination, self.road_mode)
         emissions = [
             self._emission(road.distance_km, "voiture", self.road_vehicle_type)
         ]
@@ -357,6 +360,7 @@ class MultimodalRoutingEngine:
             emissions=emissions,
             total_distance_km=road.distance_km,
             total_emissions_gco2e=emissions[0].emissions_gco2e,
+            rail_unavailable_reason=reason,
         )
 
     def _emission(

@@ -105,6 +105,8 @@ def test_paris_lyon_end_to_end_road_rail_road(tmp_path):
     assert response.status_code == 200, response.text
     body = response.json()
     assert [s["mode"] for s in body["segments"]] == ["car", "train", "car"]
+    assert body["metadata"]["rail_available"] is True
+    assert body["metadata"]["rail_unavailable_reason"] is None
     train = body["segments"][1]
     assert train["distance_m"] == pytest.approx(427_000)
     assert train["duration_s"] == pytest.approx(7080)
@@ -134,6 +136,8 @@ def test_short_trip_falls_back_to_road_only(tmp_path):
     body = client.post("/api/v1/routing/multimodal", json=_body(PARIS, near)).json()
     assert [s["mode"] for s in body["segments"]] == ["car"]
     assert body["metadata"]["matching_reliability_score"] == 0.0
+    assert body["metadata"]["rail_available"] is False
+    assert body["metadata"]["rail_unavailable_reason"] == "short_trip"
 
 
 def test_osrm_outage_is_retried_then_mapped_to_502(tmp_path):
@@ -159,6 +163,7 @@ def test_long_trip_outside_france_falls_back_to_road(tmp_path):
     response = client.post("/api/v1/routing/multimodal", json=_body(PARIS, berlin))
     assert response.status_code == 200, response.text
     assert [s["mode"] for s in response.json()["segments"]] == ["car"]
+    assert response.json()["metadata"]["rail_unavailable_reason"] == "outside_rail_coverage"
     assert len(osrm.urls) == 1
 
 
@@ -229,6 +234,7 @@ def test_absurd_rail_detour_falls_back_to_road(tmp_path):
         "/api/v1/routing/multimodal", json=_body(PARIS, south_of_paris)
     ).json()
     assert [s["mode"] for s in body["segments"]] == ["car"]
+    assert body["metadata"]["rail_unavailable_reason"] == "no_rail_route"
 
 
 def test_station_search_can_be_restricted_to_graph_nodes(tmp_path):
