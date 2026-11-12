@@ -14,6 +14,7 @@ class Settings:
     osrm_base_url: str
     osrm_timeout_seconds: float
     osrm_max_retries: int
+    cors_origins: tuple[str, ...]
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -26,6 +27,11 @@ class Settings:
             ),
             osrm_timeout_seconds=float(os.getenv("OSRM_TIMEOUT_SECONDS", "10")),
             osrm_max_retries=int(os.getenv("OSRM_MAX_RETRIES", "3")),
+            cors_origins=tuple(
+                origin.strip()
+                for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+                if origin.strip()
+            ),
         )
 
     @property

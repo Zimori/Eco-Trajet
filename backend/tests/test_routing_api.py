@@ -32,3 +32,11 @@ def test_agent_tool_schema_is_openai_compatible():
     body = response.json()
     assert body["type"] == "function"
     assert body["function"]["name"] == "calculate_multimodal_trip"
+
+
+def test_cors_rejects_unlisted_origin():
+    response = TestClient(app).options(
+        "/api/v1/routing/multimodal",
+        headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST"},
+    )
+    assert "access-control-allow-origin" not in response.headers
