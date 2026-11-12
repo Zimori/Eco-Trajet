@@ -12,7 +12,7 @@ import httpx
 import networkx as nx
 from pydantic import BaseModel, ConfigDict, Field
 
-from .entity_matcher import EmissionEntityMatcher
+from .entity_matcher import EmissionEntityMatcher, InvalidCoordinatesError
 
 
 class RoutingError(RuntimeError):
@@ -264,7 +264,10 @@ class MultimodalRoutingEngine:
             direct = await self.get_road_segment(origin, destination, self.road_mode)
             return self._road_only_result(origin, destination, direct)
 
-        station_pair = self._select_station_pair(origin, destination)
+        try:
+            station_pair = self._select_station_pair(origin, destination)
+        except InvalidCoordinatesError:  # outside Lambert-93: no SNCF rail, road only
+            station_pair = None
         if station_pair is None:
             direct = await self.get_road_segment(origin, destination, self.road_mode)
             return self._road_only_result(origin, destination, direct)

@@ -152,11 +152,14 @@ def test_pydantic_rejects_out_of_range_coordinates(tmp_path):
     assert response.status_code == 422
 
 
-def test_long_trip_outside_france_is_422_not_500(tmp_path):
-    _, client = _build(tmp_path, OsrmRecorder())
+def test_long_trip_outside_france_falls_back_to_road(tmp_path):
+    osrm = OsrmRecorder()
+    _, client = _build(tmp_path, osrm)
     berlin = (52.52, 13.405)
     response = client.post("/api/v1/routing/multimodal", json=_body(PARIS, berlin))
-    assert response.status_code == 422
+    assert response.status_code == 200, response.text
+    assert [s["mode"] for s in response.json()["segments"]] == ["car"]
+    assert len(osrm.urls) == 1
 
 
 def test_ademe_factor_unit_conversion_and_ambiguity(tmp_path):
