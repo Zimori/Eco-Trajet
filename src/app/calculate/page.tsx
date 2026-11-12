@@ -52,6 +52,7 @@ interface RouteInfo {
   geometry: { coordinates: [number, number][] };
   steps?: Step[];
   label?: string; //accès à label
+  railNote?: string;
 }
 
 export default function CalculatePage() {
@@ -386,6 +387,9 @@ export default function CalculatePage() {
               </span>
             </div>
           </div>
+          {routeInfo.railNote && (
+            <p role="status" data-testid="rail-note">{routeInfo.railNote}</p>
+          )}
         </div>
       )}
 

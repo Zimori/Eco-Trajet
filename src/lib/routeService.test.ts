@@ -15,6 +15,8 @@ const backendResponse = {
     timestamp: "2026-10-27T00:00:00Z",
     matching_reliability_score: 0.99,
     ademe_database_version: "2026.1",
+    rail_available: false,
+    rail_unavailable_reason: "short_trip",
   },
 };
 

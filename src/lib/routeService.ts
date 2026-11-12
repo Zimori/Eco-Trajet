@@ -27,8 +27,18 @@ export interface BackendItinerary {
     timestamp: string;
     matching_reliability_score: number;
     ademe_database_version: string;
+    rail_available: boolean;
+    rail_unavailable_reason: RailUnavailableReason | null;
   };
 }
+
+export type RailUnavailableReason = "short_trip" | "outside_rail_coverage" | "no_rail_route";
+
+const RAIL_UNAVAILABLE_NOTES: Record<RailUnavailableReason, string> = {
+  short_trip: "Trip too short for rail: car only.",
+  outside_rail_coverage: "Outside French rail coverage: car only.",
+  no_rail_route: "No sensible rail route for this trip: car only.",
+};
 
 export interface LegacyRouteStep {
   mode: string;
@@ -45,6 +55,7 @@ export interface RouteSummary {
   geometry: GeoJsonLineString;
   steps: LegacyRouteStep[];
   label: string;
+  railNote?: string;
 }
 
 const BACKEND_URL =
@@ -132,12 +143,16 @@ export async function calculateMultimodalRoutes(
   const firstGeometry =
     itinerary.segments.find((segment) => segment.geometry)?.geometry ??
     { type: "LineString", coordinates: [] };
+  const { rail_available, rail_unavailable_reason } = itinerary.metadata;
   return [{
     distance: itinerary.totals.distance_totale,
     duration: itinerary.totals.temps_total,
     co2Emissions: itinerary.totals.co2_total,
     geometry: firstGeometry,
     steps,
-    label: "Multimodal",
+    label: rail_available ? "Multimodal" : "Car only",
+    ...(rail_unavailable_reason
+      ? { railNote: RAIL_UNAVAILABLE_NOTES[rail_unavailable_reason] }
+      : {}),
   }];
 }
