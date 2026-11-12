@@ -270,3 +270,10 @@ def test_agent_tool_schema_matches_its_endpoint(tmp_path):
     assert schema["properties"] == endpoint["properties"]
     assert schema["required"] == endpoint["required"]
     assert schema["additionalProperties"] is False
+
+
+def test_health_is_healthy_with_datasets(tmp_path):
+    _, client = _build(tmp_path, OsrmRecorder())
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "healthy"

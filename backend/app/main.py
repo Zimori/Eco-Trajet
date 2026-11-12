@@ -103,11 +103,10 @@ def _load_rail_graph(path: Path) -> nx.Graph:
     return graph
 
 
-try:
-    app = create_app()
-except RuntimeError as exc:
-    _startup_error = str(exc)
-    app = _base_app(Settings.from_env(), "Unavailable until routing datasets are installed.")
+def _degraded_app(startup_error: str) -> FastAPI:
+    """Serve a 503 health check explaining why the datasets could not load."""
+    settings = Settings.from_env()
+    app = _base_app(settings, "Unavailable until routing datasets are installed.")
 
     @app.get("/health", tags=["operations"], summary="Check backend health")
     async def unavailable_health(response: Response) -> dict[str, object]:
@@ -115,6 +114,14 @@ except RuntimeError as exc:
         return {
             "status": "degraded",
             "datasets_loaded": False,
-            "version": Settings.from_env().app_version,
-            "detail": _startup_error,
+            "version": settings.app_version,
+            "detail": startup_error,
         }
+
+    return app
+
+
+try:
+    app = create_app()
+except RuntimeError as exc:
+    app = _degraded_app(str(exc))
