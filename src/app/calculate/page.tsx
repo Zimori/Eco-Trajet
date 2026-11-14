@@ -166,10 +166,12 @@ export default function CalculatePage() {
 
   const handleDepartureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setDeparture(e.target.value);
+    setSelectedDeparture(null);
   };
 
   const handleDestinationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setDestination(e.target.value);
+    setSelectedDestination(null);
   };
 
   const selectSuggestion = (suggestion: Suggestion, isForDeparture: boolean) => {
@@ -280,7 +282,7 @@ export default function CalculatePage() {
 
       <div className={styles.form}>
         {/* Champ de départ avec bouton de recherche */}
-        <div className={styles.inputWithButton}>
+        <form className={styles.inputWithButton} onSubmit={(e) => { e.preventDefault(); searchDeparture(); }}>
           <div className={styles.inputWrapper} ref={departureInputRef}>
             <input
               type="text"
@@ -309,16 +311,16 @@ export default function CalculatePage() {
           </div>
           <button
             className={styles.searchButton}
-            onClick={searchDeparture}
+            type="submit"
             disabled={loadingDeparture}
             title="Rechercher le point de départ"
           >
             {loadingDeparture ? '...' : '🔍'} {/* bouton de recherche */}
           </button>
-        </div>
+        </form>
 
         {/* Champ de destination avec bouton de recherche */}
-        <div className={styles.inputWithButton}>
+        <form className={styles.inputWithButton} onSubmit={(e) => { e.preventDefault(); searchDestination(); }}>
           <div className={styles.inputWrapper} ref={destinationInputRef}>
             <input
               type="text"
@@ -348,13 +350,13 @@ export default function CalculatePage() {
           </div>
           <button
             className={styles.searchButton}
-            onClick={searchDestination}
+            type="submit"
             disabled={loadingDestination}
             title="Rechercher la destination"
           >
             {loadingDestination ? '...' : '🔍'}
           </button>
-        </div>
+        </form>
       </div>
 
       {routeError && (
