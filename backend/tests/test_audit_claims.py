@@ -112,11 +112,12 @@ def test_paris_lyon_end_to_end_road_rail_road(tmp_path):
     assert train["distance_m"] == pytest.approx(427_000)
     assert train["duration_s"] == pytest.approx(7080)
   
-    assert train["co2_grams"] == pytest.approx(427 * 2.93)
-    assert body["totals"]["co2_total"] == pytest.approx(427 * 2.93 + 10 * 160)
-    assert body["totals"]["co2_total"] == pytest.approx(
-        sum(s["co2_grams"] for s in body["segments"])
-    )
+    assert train["co2_grams"] == round(427 * 2.93)
+    assert body["totals"]["co2_total"] == pytest.approx(427 * 2.93 + 10 * 160, abs=1)
+    assert body["totals"]["co2_total"] == sum(s["co2_grams"] for s in body["segments"])
+    numbers = [s[k] for s in body["segments"] for k in ("distance_m", "duration_s", "co2_grams")]
+    numbers += list(body["totals"].values())
+    assert all(isinstance(n, int) for n in numbers)
   
     assert train["geometry"]["coordinates"][0] == [2.3730, 48.8443]
 

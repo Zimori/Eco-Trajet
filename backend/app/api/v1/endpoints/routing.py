@@ -48,18 +48,18 @@ class SegmentDetail(BaseModel):
     """Serializable segment representation consumed by agents and clients."""
 
     mode: str
-    distance_m: float = Field(ge=0)
-    duration_s: float = Field(ge=0)
-    co2_grams: float = Field(ge=0)
+    distance_m: int = Field(ge=0)
+    duration_s: int = Field(ge=0)
+    co2_grams: int = Field(ge=0)
     geometry: dict | None = None
 
 
 class CarbonMetrics(BaseModel):
     """Aggregate distance, time and carbon metrics."""
 
-    distance_totale: float = Field(ge=0)
-    temps_total: float = Field(ge=0)
-    co2_total: float = Field(ge=0)
+    distance_totale: int = Field(ge=0)
+    temps_total: int = Field(ge=0)
+    co2_total: int = Field(ge=0)
 
 
 class ItineraryMetadata(BaseModel):
@@ -96,9 +96,9 @@ class AgentTripSummary(BaseModel):
     origin: str
     destination: str
     summary: str
-    total_distance_m: float
-    total_duration_s: float
-    total_co2_grams: float
+    total_distance_m: int
+    total_duration_s: int
+    total_co2_grams: int
     modes: list[str]
     matching_reliability_score: float
     rail_available: bool
@@ -226,7 +226,7 @@ def create_routing_router(
             summary=(
                 f"{', '.join(segment.mode for segment in response.segments)}; "
                 f"{response.totals.distance_totale:.0f} m, "
-                f"{response.totals.co2_total:.1f} gCO2e{no_rail}."
+                f"{response.totals.co2_total:.0f} gCO2e{no_rail}."
             ),
             total_distance_m=response.totals.distance_totale,
             total_duration_s=response.totals.temps_total,
@@ -245,9 +245,10 @@ def _segment(
 ) -> SegmentDetail:
     return SegmentDetail(
         mode=mode,
-        distance_m=leg.distance_km * 1000,
-        duration_s=leg.duration_minutes * 60,
-        co2_grams=emission.emissions_gco2e,
+        # Whole metres/seconds/grams: more digits are float noise, not precision.
+        distance_m=round(leg.distance_km * 1000),
+        duration_s=round(leg.duration_minutes * 60),
+        co2_grams=round(emission.emissions_gco2e),
         geometry=leg.geometry,
     )
 
