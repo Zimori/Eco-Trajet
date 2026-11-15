@@ -70,6 +70,7 @@ export default function CalculatePage() {
   const [selectedDestination, setSelectedDestination] = useState<Suggestion | null>(null);
   const [routeSteps, setRouteSteps] = useState<Step[]>([]);
   const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
+  const [allRoutes, setAllRoutes] = useState<RouteInfo[]>([]);
   const provider = useRef<unknown>(null);
   const clickedOnSuggestion = useRef<boolean>(false);
   const departureInputRef = useRef<HTMLDivElement | null>(null);
@@ -203,6 +204,7 @@ export default function CalculatePage() {
     const fetchRoute = async () => {
       setRouteInfo(null);
       setRouteSteps([]);
+      setAllRoutes([]);
       setRouteError(null);
       if (!selectedDeparture || !selectedDestination) return;
       try {
@@ -217,7 +219,7 @@ export default function CalculatePage() {
           lng: selectedDestination.x
         };
         const routes = await calculateMultimodalRoutes(departureCoords, destinationCoords);
-        // The backend returns a single itinerary for now.
+        setAllRoutes(routes);
         setRouteInfo(routes[0]);
         setRouteSteps(routes[0]?.steps || []);
       } catch (error) {
@@ -387,6 +389,38 @@ export default function CalculatePage() {
           {routeInfo.railNote && (
             <p role="status" data-testid="rail-note">{routeInfo.railNote}</p>
           )}
+        </div>
+      )}
+
+      {allRoutes.length > 1 && (
+        <div className={styles.resultsContainer}>
+          <h2 className={styles.resultsTitle}>Available itineraries</h2>
+          <div className={styles.resultsGrid}>
+            {allRoutes.map((route) => (
+              <div
+                key={route.label}
+                className={styles.resultItem + (route === routeInfo ? ' ' + styles.selectedRoute : '')}
+              >
+                <span className={styles.resultLabel}>{route.label}</span>
+                <span className={styles.resultValue}>{formatDistance(route.distance)}</span>
+                <span className={styles.resultValue}>{formatDuration(route.duration)}</span>
+                <span className={styles.resultValue}>{route.co2Emissions} g CO₂</span>
+                {route === routeInfo ? (
+                  <span className={styles.selectedBadge}>Selected</span>
+                ) : (
+                  <button
+                    className={styles.selectButton}
+                    onClick={() => {
+                      setRouteInfo(route);
+                      setRouteSteps(route.steps || []);
+                    }}
+                  >
+                    Select
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

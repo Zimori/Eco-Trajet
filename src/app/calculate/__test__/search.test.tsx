@@ -62,11 +62,16 @@ test('editing an address clears the previous route', async () => {
   await waitFor(() => expect(screen.queryByText('Route Information')).not.toBeInTheDocument());
 });
 
-test('the route is shown once', async () => {
+test('picking another itinerary switches the summary', async () => {
+  const train = { ...route, label: 'Train + car', duration: 7200, co2Emissions: 2000 };
+  const car = { ...route, label: 'Car only', duration: 14400, co2Emissions: 74000 };
+  (calculateMultimodalRoutes as jest.Mock).mockResolvedValue([train, car]);
   await renderPage();
   await pick('Departure', 'Paris', 'Paris, France');
   await pick('Destination', 'Lyon', 'Lyon, France');
-  expect(await screen.findByTestId('mode-value')).toHaveTextContent('Multimodal');
-  expect(screen.getAllByTestId('distance-value')).toHaveLength(1);
-  expect(screen.queryByText('Available itinerary')).not.toBeInTheDocument();
+  expect(await screen.findByTestId('mode-value')).toHaveTextContent('Train + car');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Select' }));
+  expect(screen.getByTestId('mode-value')).toHaveTextContent('Car only');
+  expect(screen.getByTestId('emissions-value')).toHaveTextContent('74000 g');
 });
