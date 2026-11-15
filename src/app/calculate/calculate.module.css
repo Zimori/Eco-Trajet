@@ -213,6 +213,13 @@
   text-align: center;
 }
 
+.routeMode {
+  text-align: center;
+  color: #1b8a5a;
+  font-weight: 700;
+  margin: -10px 0 0;
+}
+
 .resultsGrid {
   display: flex;
   flex-wrap: wrap;

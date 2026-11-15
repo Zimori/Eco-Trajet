@@ -364,13 +364,9 @@ export default function CalculatePage() {
       {routeInfo && (
         <div className={styles.resultsContainer}>
           <h2 className={styles.resultsTitle}>Route Information</h2>
+          <p className={styles.routeMode} data-testid="mode-value">{routeInfo.label}</p>
 
           <div className={styles.resultsGrid}>
-            <div className={styles.resultItem}>
-              <span className={styles.resultLabel}>Mode:</span>
-              <span className={styles.resultValue} data-testid="mode-value">{routeInfo.label}</span>
-            </div>
-
             <div className={styles.resultItem}>
               <span className={styles.resultLabel} data-testid="distance-label">Distance:</span>
               <span className={styles.resultValue} data-testid="distance-value">{formatDistance(routeInfo.distance)}</span>
