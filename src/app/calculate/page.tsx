@@ -396,8 +396,8 @@ export default function CalculatePage() {
 
       <div className={styles.mapContainer}>
         <MapComponent
-          departure={selectedDeparture ? selectedDeparture.label : ""}
-          destination={selectedDestination ? selectedDestination.label : ""}
+          departure={selectedDeparture}
+          destination={selectedDestination}
           routeGeometry={routeInfo?.geometry}
           loading={loading}
           steps={routeSteps}

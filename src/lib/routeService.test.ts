@@ -1,4 +1,4 @@
-import { fetchMultimodalRoute, geocodeLocation } from "./routeService";
+import { fetchMultimodalRoute } from "./routeService";
 
 const backendResponse = {
   segments: [
@@ -60,23 +60,5 @@ describe("fetchMultimodalRoute", () => {
     await expect(
       fetchMultimodalRoute({ lat: 48, lng: 2 }, { lat: 49, lng: 3 }),
     ).rejects.toThrow("No station found");
-  });
-});
-
-describe("geocodeLocation", () => {
-  beforeEach(() => {
-    global.fetch = jest.fn();
-  });
-
-  it("parses a Nominatim result", async () => {
-    jest.mocked(fetch).mockResolvedValue(
-      response([{ lat: "45.75", lon: "4.85" }], 200),
-    );
-    await expect(geocodeLocation("Lyon")).resolves.toEqual({ lat: 45.75, lng: 4.85 });
-  });
-
-  it("rejects an empty result", async () => {
-    jest.mocked(fetch).mockResolvedValue(response([], 200));
-    await expect(geocodeLocation("NowhereLand")).rejects.toThrow("Aucun résultat");
   });
 });

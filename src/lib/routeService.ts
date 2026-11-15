@@ -109,25 +109,6 @@ export async function fetchMultimodalRoute(
   return payload;
 }
 
-export async function geocodeLocation(locationName: string): Promise<Coordinates> {
-  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(locationName)}`;
-  const response = await fetch(url, {
-    headers: { "User-Agent": "EcoTrajet-App/1.0" },
-  });
-  if (!response.ok) throw new Error("Le service de géocodage est indisponible.");
-  const results: unknown = await response.json();
-  if (!Array.isArray(results) || results.length === 0) {
-    throw new Error(`Aucun résultat trouvé pour "${locationName}".`);
-  }
-  const result = results[0] as { lat?: string; lon?: string };
-  const lat = Number(result.lat);
-  const lng = Number(result.lon);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    throw new Error("Le géocodage a renvoyé des coordonnées invalides.");
-  }
-  return { lat, lng };
-}
-
 export async function calculateMultimodalRoutes(
   origin: Coordinates,
   destination: Coordinates,

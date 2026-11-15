@@ -18,23 +18,10 @@ jest.mock('react-leaflet', () => ({
   }),
 }));
 
-jest.mock('@/lib/routeService', () => ({
-  geocodeLocation: jest.fn((location: string) => {
-    if (location === 'Paris') {
-      return Promise.resolve({ lat: 48.8566, lng: 2.3522 });
-    }
-    if (location === 'Lyon') {
-      return Promise.resolve({ lat: 45.764, lng: 4.8357 });
-    }
-    return Promise.reject('Location not found');
-  }),
-}));
-
-
 describe('MapComponent', () => {
-  test('renders the map and markers', async () => {
-    const departure = 'Paris';
-    const destination = 'Lyon';
+  test('renders the map and markers', () => {
+    const departure = { x: 2.3522, y: 48.8566 }; // Paris
+    const destination = { x: 4.8357, y: 45.764 }; // Lyon
     const routeGeometry = {
       coordinates: [
         [2.3522, 48.8566] as [number, number], // Paris
@@ -51,13 +38,22 @@ describe('MapComponent', () => {
       />
     );
   
-    // Vérifie si la carte est rendue
+    // The map renders
     expect(screen.getByTestId('map-container')).toBeInTheDocument();
   
-    // Attendre que les marqueurs soient rendus
-    const markers = await screen.findAllByTestId('marker');
-    expect(markers).toHaveLength(2); // Deux marqueurs : départ et destination
+    const markers = screen.getAllByTestId('marker');
+    expect(markers).toHaveLength(2); // departure and destination
     expect(markers[0]).toHaveAttribute('title', 'Départ');
     expect(markers[1]).toHaveAttribute('title', 'Destination');
+    // markers sit on the picked coordinates, as [lat, lng]
+    expect(markers[0]).toHaveTextContent('48.8566,2.3522');
+    expect(markers[1]).toHaveTextContent('45.764,4.8357');
+  });
+
+  test('places only the picked points', () => {
+    render(<MapComponent departure={null} destination={{ x: 4.8357, y: 45.764 }} />);
+    const markers = screen.getAllByTestId('marker');
+    expect(markers).toHaveLength(1);
+    expect(markers[0]).toHaveAttribute('title', 'Destination');
   });
 });
