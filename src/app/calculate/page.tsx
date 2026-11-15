@@ -70,8 +70,7 @@ export default function CalculatePage() {
   const [selectedDestination, setSelectedDestination] = useState<Suggestion | null>(null);
   const [routeSteps, setRouteSteps] = useState<Step[]>([]);
   const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
-  const [allRoutes, setAllRoutes] = useState<RouteInfo[]>([]); // stocker itinérarires
-  const [bestRouteType, setBestRouteType] = useState<string>("");
+  const [allRoutes, setAllRoutes] = useState<RouteInfo[]>([]);
   const provider = useRef<unknown>(null);
   const clickedOnSuggestion = useRef<boolean>(false);
   const departureInputRef = useRef<HTMLDivElement | null>(null);
@@ -166,10 +165,12 @@ export default function CalculatePage() {
 
   const handleDepartureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setDeparture(e.target.value);
+    setSelectedDeparture(null);
   };
 
   const handleDestinationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setDestination(e.target.value);
+    setSelectedDestination(null);
   };
 
   const selectSuggestion = (suggestion: Suggestion, isForDeparture: boolean) => {
@@ -204,7 +205,6 @@ export default function CalculatePage() {
       setRouteInfo(null);
       setRouteSteps([]);
       setAllRoutes([]);
-      setBestRouteType("");
       setRouteError(null);
       if (!selectedDeparture || !selectedDestination) return;
       try {
@@ -220,10 +220,8 @@ export default function CalculatePage() {
         };
         const routes = await calculateMultimodalRoutes(departureCoords, destinationCoords);
         setAllRoutes(routes);
-        // On affiche le plus rapide par défaut
         setRouteInfo(routes[0]);
         setRouteSteps(routes[0]?.steps || []);
-        setBestRouteType(routes[0]?.label || "");
       } catch (error) {
         console.error("Une erreur s'est produite lors du calcul de l'itinéraire :", error);
         setRouteError(
@@ -280,7 +278,7 @@ export default function CalculatePage() {
 
       <div className={styles.form}>
         {/* Champ de départ avec bouton de recherche */}
-        <div className={styles.inputWithButton}>
+        <form className={styles.inputWithButton} onSubmit={(e) => { e.preventDefault(); searchDeparture(); }}>
           <div className={styles.inputWrapper} ref={departureInputRef}>
             <input
               type="text"
@@ -309,16 +307,16 @@ export default function CalculatePage() {
           </div>
           <button
             className={styles.searchButton}
-            onClick={searchDeparture}
+            type="submit"
             disabled={loadingDeparture}
             title="Rechercher le point de départ"
           >
             {loadingDeparture ? '...' : '🔍'} {/* bouton de recherche */}
           </button>
-        </div>
+        </form>
 
         {/* Champ de destination avec bouton de recherche */}
-        <div className={styles.inputWithButton}>
+        <form className={styles.inputWithButton} onSubmit={(e) => { e.preventDefault(); searchDestination(); }}>
           <div className={styles.inputWrapper} ref={destinationInputRef}>
             <input
               type="text"
@@ -348,13 +346,13 @@ export default function CalculatePage() {
           </div>
           <button
             className={styles.searchButton}
-            onClick={searchDestination}
+            type="submit"
             disabled={loadingDestination}
             title="Rechercher la destination"
           >
             {loadingDestination ? '...' : '🔍'}
           </button>
-        </div>
+        </form>
       </div>
 
       {routeError && (
@@ -368,6 +366,7 @@ export default function CalculatePage() {
       {routeInfo && (
         <div className={styles.resultsContainer}>
           <h2 className={styles.resultsTitle}>Route Information</h2>
+          <p className={styles.routeMode} data-testid="mode-value">{routeInfo.label}</p>
 
           <div className={styles.resultsGrid}>
             <div className={styles.resultItem}>
@@ -393,43 +392,32 @@ export default function CalculatePage() {
         </div>
       )}
 
-      {allRoutes.length > 0 && (
+      {allRoutes.length > 1 && (
         <div className={styles.resultsContainer}>
-          <h2 className={styles.resultsTitle}>Available itinerary</h2>
+          <h2 className={styles.resultsTitle}>Available itineraries</h2>
           <div className={styles.resultsGrid}>
-            {allRoutes.filter((route, idx, arr) => {
-              // Pour la voiture, n'afficher qu'une seule case "Car only" (pas les steps)
-              if (route.label === 'Car only') {
-                // On ne garde que la première occurrence
-                return arr.findIndex(r => r.label === 'Car only') === idx;
-              }
-              // Pour les autres, on garde tout
-              return true;
-            }).map((route, idx) => (
+            {allRoutes.map((route) => (
               <div
-                key={idx}
-                className={
-                  styles.resultItem +
-                  (route.label === bestRouteType ? ' ' + styles.bestRoute : '')
-                }
+                key={route.label}
+                className={styles.resultItem + (route === routeInfo ? ' ' + styles.selectedRoute : '')}
               >
                 <span className={styles.resultLabel}>{route.label}</span>
-                <span className={styles.resultValue} data-testid="distance-value">{formatDistance(route.distance)}</span>
-                <span className={styles.resultValue} data-testid="duration-value">{formatDuration(route.duration)}</span>
-                <span className={styles.resultValue} data-testid="emissions-value">{route.co2Emissions} g CO₂</span>
-                {route.label === bestRouteType && (
-                  <span className={styles.bestBadge}>Selected mode</span>
+                <span className={styles.resultValue}>{formatDistance(route.distance)}</span>
+                <span className={styles.resultValue}>{formatDuration(route.duration)}</span>
+                <span className={styles.resultValue}>{route.co2Emissions} g CO₂</span>
+                {route === routeInfo ? (
+                  <span className={styles.selectedBadge}>Selected</span>
+                ) : (
+                  <button
+                    className={styles.selectButton}
+                    onClick={() => {
+                      setRouteInfo(route);
+                      setRouteSteps(route.steps || []);
+                    }}
+                  >
+                    Select
+                  </button>
                 )}
-                <button
-                  className={styles.showStepsButton}
-                  onClick={() => {
-                    setRouteInfo(route);
-                    setRouteSteps(route.steps || []);
-                    setBestRouteType(route.label || "");
-                  }}
-                >
-                  Show steps
-                </button>
               </div>
             ))}
           </div>
@@ -438,8 +426,8 @@ export default function CalculatePage() {
 
       <div className={styles.mapContainer}>
         <MapComponent
-          departure={selectedDeparture ? selectedDeparture.label : ""}
-          destination={selectedDestination ? selectedDestination.label : ""}
+          departure={selectedDeparture}
+          destination={selectedDestination}
           routeGeometry={routeInfo?.geometry}
           loading={loading}
           steps={routeSteps}

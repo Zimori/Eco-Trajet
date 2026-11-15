@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, Polyline, Marker, Tooltip, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import styles from "./MapComponent.module.css";
 import L from "leaflet";
-import { geocodeLocation } from "@/lib/routeService";
 
 // URLs par défaut
 delete (L.Icon.Default.prototype as { _getIconUrl?: () => string })._getIconUrl;
@@ -47,9 +46,12 @@ interface Segment {
   description: string;
 }
 
+// A picked address, as the geosearch provider returns it (x = lng, y = lat).
+type Place = { x: number; y: number };
+
 interface MapComponentProps {
-  departure: string;
-  destination: string;
+  departure: Place | null;
+  destination: Place | null;
   routeGeometry?: { coordinates: [number, number][] };
   loading?: boolean;
   steps?: Step[];
@@ -78,9 +80,6 @@ export default function MapComponent({
   loading = false,
   steps = []
 }: MapComponentProps) {
-  const [markers, setMarkers] = useState<[number, number][]>([]);
-  const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
-
   // Construction des segments colorés pour chaque étape
   const segments: Segment[] = useMemo(() => {
     const segs: Segment[] = [];
@@ -116,50 +115,16 @@ export default function MapComponent({
     return segs;
   }, [steps, routeGeometry]);
 
-  useEffect(() => {
-    const fetchCoordinates = async () => {
-      try {
-        const newMarkers: [number, number][] = [];
-
-        if (departure) {
-          const departureCoords = await geocodeLocation(departure);
-          newMarkers.push([departureCoords.lat, departureCoords.lng]);
-        }
-
-        if (destination) {
-          const destinationCoords = await geocodeLocation(destination);
-          newMarkers.push([destinationCoords.lat, destinationCoords.lng]);
-        }
-
-        if (newMarkers.length > 0) {
-          setMarkers(newMarkers);
-
-          // maps limits
-          if (newMarkers.length > 1) {
-            setMapBounds(L.latLngBounds(newMarkers.map((marker: [number, number]) => L.latLng(marker[0], marker[1]))));
-          }
-        }
-      } catch (error) {
-        console.error("Erreur lors de la géolocalisation des adresses:", error);
-      }
-    };
-
-    if (departure || destination) {
-      fetchCoordinates();
-    }
-  }, [departure, destination]);
-
-  useEffect(() => {
-    if (segments.length > 0) {
-      const allPoints: [number, number][] = segments.flatMap(seg => seg.polyline);
-      const newBounds = L.latLngBounds(allPoints.map(pt => L.latLng(pt[0], pt[1])));
-      // N'appelle setMapBounds que si les bounds changent vraiment
-      if (!mapBounds || !mapBounds.equals(newBounds)) {
-        setMapBounds(newBounds);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segments]);
+  const placed = useMemo(
+    () => [departure, destination]
+      .filter((p): p is Place => p !== null)
+      .map((p): [number, number] => [p.y, p.x]),
+    [departure, destination],
+  );
+  const mapBounds = useMemo(() => {
+    const points = segments.length > 0 ? segments.flatMap((seg) => seg.polyline) : placed;
+    return points.length > 1 ? L.latLngBounds(points) : null;
+  }, [segments, placed]);
 
   return (
     <MapContainer
@@ -220,13 +185,8 @@ export default function MapComponent({
         </div>
       ))}
       {/* Marqueurs départ/arrivée */}
-      {markers.map((position, idx) => (
-        <Marker
-          key={`marker-${idx}`}
-          position={position}
-          title={idx === 0 ? "Départ" : "Destination"}
-        />
-      ))}
+      {departure && <Marker position={[departure.y, departure.x]} title="Départ" />}
+      {destination && <Marker position={[destination.y, destination.x]} title="Destination" />}
       {/* Overlay de chargement */}
       {loading && (
         <div className={styles.loadingOverlay}>
@@ -235,8 +195,8 @@ export default function MapComponent({
       )}
       <SetMapView
         bounds={mapBounds}
-        center={markers.length === 1 ? markers[0] : null}
-        zoom={markers.length === 1 ? 13 : 6}
+        center={placed.length === 1 ? placed[0] : null}
+        zoom={placed.length === 1 ? 13 : 6}
       />
     </MapContainer>
   );

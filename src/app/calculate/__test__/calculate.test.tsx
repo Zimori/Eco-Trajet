@@ -67,15 +67,6 @@ jest.mock('@/lib/routeService', () => ({
       ]
     }
   ]),
-  geocodeLocation: jest.fn().mockImplementation((location) => {
-    if (location === 'Paris') {
-      return Promise.resolve({ lat: 48.8566, lng: 2.3522 });
-    }
-    if (location === 'Lyon') {
-      return Promise.resolve({ lat: 45.764, lng: 4.8357 });
-    }
-    return Promise.reject('Location not found');
-  })
 }));
 
 // Now import the component (after all mocks are set up)
