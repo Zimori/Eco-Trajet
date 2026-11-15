@@ -70,8 +70,6 @@ export default function CalculatePage() {
   const [selectedDestination, setSelectedDestination] = useState<Suggestion | null>(null);
   const [routeSteps, setRouteSteps] = useState<Step[]>([]);
   const [routeInfo, setRouteInfo] = useState<RouteInfo | null>(null);
-  const [allRoutes, setAllRoutes] = useState<RouteInfo[]>([]); // stocker itinérarires
-  const [bestRouteType, setBestRouteType] = useState<string>("");
   const provider = useRef<unknown>(null);
   const clickedOnSuggestion = useRef<boolean>(false);
   const departureInputRef = useRef<HTMLDivElement | null>(null);
@@ -205,8 +203,6 @@ export default function CalculatePage() {
     const fetchRoute = async () => {
       setRouteInfo(null);
       setRouteSteps([]);
-      setAllRoutes([]);
-      setBestRouteType("");
       setRouteError(null);
       if (!selectedDeparture || !selectedDestination) return;
       try {
@@ -221,11 +217,9 @@ export default function CalculatePage() {
           lng: selectedDestination.x
         };
         const routes = await calculateMultimodalRoutes(departureCoords, destinationCoords);
-        setAllRoutes(routes);
-        // On affiche le plus rapide par défaut
+        // The backend returns a single itinerary for now.
         setRouteInfo(routes[0]);
         setRouteSteps(routes[0]?.steps || []);
-        setBestRouteType(routes[0]?.label || "");
       } catch (error) {
         console.error("Une erreur s'est produite lors du calcul de l'itinéraire :", error);
         setRouteError(
@@ -373,6 +367,11 @@ export default function CalculatePage() {
 
           <div className={styles.resultsGrid}>
             <div className={styles.resultItem}>
+              <span className={styles.resultLabel}>Mode:</span>
+              <span className={styles.resultValue} data-testid="mode-value">{routeInfo.label}</span>
+            </div>
+
+            <div className={styles.resultItem}>
               <span className={styles.resultLabel} data-testid="distance-label">Distance:</span>
               <span className={styles.resultValue} data-testid="distance-value">{formatDistance(routeInfo.distance)}</span>
             </div>
@@ -392,49 +391,6 @@ export default function CalculatePage() {
           {routeInfo.railNote && (
             <p role="status" data-testid="rail-note">{routeInfo.railNote}</p>
           )}
-        </div>
-      )}
-
-      {allRoutes.length > 0 && (
-        <div className={styles.resultsContainer}>
-          <h2 className={styles.resultsTitle}>Available itinerary</h2>
-          <div className={styles.resultsGrid}>
-            {allRoutes.filter((route, idx, arr) => {
-              // Pour la voiture, n'afficher qu'une seule case "Car only" (pas les steps)
-              if (route.label === 'Car only') {
-                // On ne garde que la première occurrence
-                return arr.findIndex(r => r.label === 'Car only') === idx;
-              }
-              // Pour les autres, on garde tout
-              return true;
-            }).map((route, idx) => (
-              <div
-                key={idx}
-                className={
-                  styles.resultItem +
-                  (route.label === bestRouteType ? ' ' + styles.bestRoute : '')
-                }
-              >
-                <span className={styles.resultLabel}>{route.label}</span>
-                <span className={styles.resultValue} data-testid="distance-value">{formatDistance(route.distance)}</span>
-                <span className={styles.resultValue} data-testid="duration-value">{formatDuration(route.duration)}</span>
-                <span className={styles.resultValue} data-testid="emissions-value">{route.co2Emissions} g CO₂</span>
-                {route.label === bestRouteType && (
-                  <span className={styles.bestBadge}>Selected mode</span>
-                )}
-                <button
-                  className={styles.showStepsButton}
-                  onClick={() => {
-                    setRouteInfo(route);
-                    setRouteSteps(route.steps || []);
-                    setBestRouteType(route.label || "");
-                  }}
-                >
-                  Show steps
-                </button>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 

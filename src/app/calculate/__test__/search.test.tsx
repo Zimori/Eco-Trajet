@@ -31,14 +31,19 @@ async function pick(placeholder: string, text: string, label: string) {
   fireEvent.mouseDown(await screen.findByText(label));
 }
 
+// The geosearch provider is loaded in an effect; wait for it before typing.
+async function renderPage() {
+  render(<CalculatePage />);
+  await waitFor(() => expect(jest.requireMock('leaflet-geosearch').OpenStreetMapProvider).toHaveBeenCalled());
+}
+
 beforeEach(() => {
   search.mockReset();
   (calculateMultimodalRoutes as jest.Mock).mockResolvedValue([route]);
 });
 
 test('Enter in an address field searches', async () => {
-  render(<CalculatePage />);
-  await waitFor(() => expect(jest.requireMock('leaflet-geosearch').OpenStreetMapProvider).toHaveBeenCalled());
+  await renderPage();
   search.mockResolvedValueOnce([{ label: 'Paris, France', x: 2.35, y: 48.85 }]);
   const input = screen.getByPlaceholderText('Departure');
   fireEvent.change(input, { target: { value: 'Paris' } });
@@ -48,12 +53,20 @@ test('Enter in an address field searches', async () => {
 });
 
 test('editing an address clears the previous route', async () => {
-  render(<CalculatePage />);
-  await waitFor(() => expect(jest.requireMock('leaflet-geosearch').OpenStreetMapProvider).toHaveBeenCalled());
+  await renderPage();
   await pick('Departure', 'Paris', 'Paris, France');
   await pick('Destination', 'Lyon', 'Lyon, France');
   expect(await screen.findByText('Route Information')).toBeInTheDocument();
 
   fireEvent.change(screen.getByPlaceholderText('Departure'), { target: { value: 'Marseille' } });
   await waitFor(() => expect(screen.queryByText('Route Information')).not.toBeInTheDocument());
+});
+
+test('the route is shown once', async () => {
+  await renderPage();
+  await pick('Departure', 'Paris', 'Paris, France');
+  await pick('Destination', 'Lyon', 'Lyon, France');
+  expect(await screen.findByTestId('mode-value')).toHaveTextContent('Multimodal');
+  expect(screen.getAllByTestId('distance-value')).toHaveLength(1);
+  expect(screen.queryByText('Available itinerary')).not.toBeInTheDocument();
 });
