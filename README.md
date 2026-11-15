@@ -107,6 +107,8 @@ make osrm-data       # osrm-extract / partition / customize (MLD, car profile)
 
 Set `OSRM_REGION=europe/france/rhone-alpes` for a smaller extract, and change the `osrm` service command to `rhone-alpes.osrm` to match.
 
+OSRM keeps the France graph in RAM (~5.6 GB). To use less memory, set the `osrm` service command to `osrm-routed --algorithm mld --mmap /data/france.osrm` (slower queries).
+
 ```bash
 make run
 # or
