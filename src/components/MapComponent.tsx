@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { MapContainer, TileLayer, Polyline, Marker, Tooltip, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Polyline, Marker, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import styles from "./MapComponent.module.css";
 import L from "leaflet";
@@ -41,7 +41,6 @@ interface Step {
 interface Segment {
   polyline: [number, number][];
   color: string;
-  isSimulated: boolean;
   mode: string;
   description: string;
 }
@@ -99,18 +98,17 @@ export default function MapComponent({
           polyline = [lastPoint, step.to];
         }
         if (polyline && polyline.length >= 2) {
-          const isSimulated = false;
-          segs.push({ polyline, color, isSimulated, mode: step.mode, description: step.description });
+          segs.push({ polyline, color, mode: step.mode, description: step.description });
           lastPoint = polyline[polyline.length - 1];
         }
       }
     } else if (routeGeometry && routeGeometry.coordinates) {
       const path: [number, number][] = routeGeometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
-      segs.push({ polyline: path, color: getModeColor('default'), isSimulated: false, mode: 'default', description: '' });
+      segs.push({ polyline: path, color: getModeColor('default'), mode: 'default', description: '' });
     }
     if (segs.length === 0 && routeGeometry && routeGeometry.coordinates) {
       const path: [number, number][] = routeGeometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]]);
-      segs.push({ polyline: path, color: getModeColor('car'), isSimulated: false, mode: 'car', description: '' });
+      segs.push({ polyline: path, color: getModeColor('car'), mode: 'car', description: '' });
     }
     return segs;
   }, [steps, routeGeometry]);
@@ -138,51 +136,13 @@ export default function MapComponent({
       />
       {/* Segments multimodaux colorés */}
       {segments.map((seg, idx) => (
-        <div key={`segment-${idx}`}>
-          <Polyline
-            key={"poly-" + idx}
-            positions={seg.polyline}
-            color={seg.color}
-            weight={8}
-            opacity={0.95}
-            dashArray={seg.isSimulated ? "12 12" : undefined}
-            eventHandlers={seg.isSimulated ? {
-              mouseover: (e) => {
-                e.target.openTooltip();
-              },
-              mouseout: (e) => {
-                e.target.closeTooltip();
-              }
-            } : {}}
-          >
-            {seg.isSimulated && (
-              <Tooltip sticky direction="top">
-                ⚠️ Simulated path – not the real route
-              </Tooltip>
-            )}
-          </Polyline>
-          {/* Emoji ⚠️ au milieu du segment simulé, PROBABLMEENT A RETIRER */}
-          {seg.isSimulated && seg.polyline.length >= 2 && (
-            <Marker
-              key={"warn-" + idx}
-              position={[
-                (seg.polyline[0][0] + seg.polyline[seg.polyline.length - 1][0]) / 2,
-                (seg.polyline[0][1] + seg.polyline[seg.polyline.length - 1][1]) / 2
-              ]}
-              icon={L.divIcon({
-                className: '',
-                html: '<span style="font-size:2rem;">⚠️</span>',
-                iconSize: [32, 32],
-                iconAnchor: [16, 16],
-              })}
-            >
-              {/* Pour afficher le message d'avertissement sur le logo en plus du segment  */}
-              <Tooltip direction="top" permanent={false} sticky>
-                ⚠️ Simulated path – not the real route
-              </Tooltip>
-            </Marker>
-          )}
-        </div>
+        <Polyline
+          key={`segment-${idx}`}
+          positions={seg.polyline}
+          color={seg.color}
+          weight={8}
+          opacity={0.95}
+        />
       ))}
       {/* Marqueurs départ/arrivée */}
       {departure && <Marker position={[departure.y, departure.x]} title="Départ" />}

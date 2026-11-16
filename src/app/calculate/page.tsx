@@ -223,11 +223,11 @@ export default function CalculatePage() {
         setRouteInfo(routes[0]);
         setRouteSteps(routes[0]?.steps || []);
       } catch (error) {
-        console.error("Une erreur s'est produite lors du calcul de l'itinéraire :", error);
+        console.error("Route calculation failed:", error);
         setRouteError(
           error instanceof Error
             ? error.message
-            : "Le backend de routage est indisponible.",
+            : "The routing backend is unavailable.",
         );
       } finally {
         setLoading(false);

@@ -49,22 +49,6 @@
   gap: 20px;
 }
 
-/* Style du bouton Sign In */
-.signIn {
-  background-color: #064420;
-  color: white;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 8px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: background 0.3s;
-}
-
-.signIn:hover {
-  background-color: #052e1b;
-}
-
 /* Interrupteur switch */
 .switch {
   position: relative;

@@ -24,7 +24,7 @@ export default function Header() {
           <Link href="/">
             <Image
               src="/images/logoHome.png"
-              alt="Logo de l'app"
+              alt="EcoTrajet home"
               width={30} // Largeur de l'image
               height={20} // Hauteur de l'image
               style={{ width: "auto", height: "auto" }}
@@ -37,9 +37,8 @@ export default function Header() {
           <li><Link href="/about-us">About Us</Link></li>
         </ul>
         <div className={styles.actions}>
-          <button className={styles.signIn}>Sign In</button>
           <label className={styles.switch}>
-            <input type="checkbox" onChange={toggleStyle} />
+            <input type="checkbox" onChange={toggleStyle} aria-label="Turn page styles off" />
             <span className={styles.slider}></span>
           </label>
         </div>
