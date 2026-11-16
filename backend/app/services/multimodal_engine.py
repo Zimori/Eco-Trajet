@@ -14,6 +14,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .entity_matcher import EmissionEntityMatcher, InvalidCoordinatesError
 
+# Max distance OSRM may move a point to reach a road; above it the point is off the map.
+MAX_ROAD_SNAP_M = 5_000.0
+
 
 class RoutingError(RuntimeError):
     """Base exception for routing failures."""
@@ -185,8 +188,16 @@ class MultimodalRoutingEngine:
                 raise ValueError("OSRM returned an empty or invalid GeoJSON geometry.")
             if distance_m < 0 or duration_s < 0:
                 raise ValueError("OSRM returned negative distance or duration.")
+            snaps_m = [float(w["distance"]) for w in payload.get("waypoints", [])]
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise RoadRoutingError("OSRM returned an invalid route payload.") from exc
+        # A point far from any road is outside the OSRM map (France-only extract):
+        # OSRM would silently snap it to the nearest French road.
+        if any(snap > MAX_ROAD_SNAP_M for snap in snaps_m):
+            raise ItineraryInputError(
+                f"A point is {max(snaps_m) / 1000:.0f} km from the nearest road "
+                "in the routing map, which covers France only."
+            )
         return RoadSegment(
             mode=mode,
             distance_km=distance_m / 1000.0,
