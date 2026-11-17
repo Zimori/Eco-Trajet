@@ -64,7 +64,7 @@ const BACKEND_URL =
 
 function assertBackendResponse(value: unknown): asserts value is BackendItinerary {
   if (!value || typeof value !== "object") {
-    throw new Error("Réponse invalide du backend de routage.");
+    throw new Error("Invalid response from the routing backend.");
   }
   const response = value as Partial<BackendItinerary>;
   if (
@@ -74,7 +74,7 @@ function assertBackendResponse(value: unknown): asserts value is BackendItinerar
     typeof response.totals.temps_total !== "number" ||
     typeof response.totals.co2_total !== "number"
   ) {
-    throw new Error("Réponse backend incomplète ou mal formée.");
+    throw new Error("Incomplete or malformed routing backend response.");
   }
 }
 
@@ -94,7 +94,7 @@ export async function fetchMultimodalRoute(
   });
 
   if (!response.ok) {
-    let detail = `Le backend de routage a répondu ${response.status}.`;
+    let detail = `The routing backend answered ${response.status}.`;
     try {
       const body = (await response.json()) as { detail?: string };
       if (body.detail) detail = body.detail;

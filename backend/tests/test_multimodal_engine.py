@@ -32,3 +32,17 @@ def test_rail_emissions_use_each_edge_service():
     assert rail.distance_km_by_service == {"TGV": 400, "TER": 50}
     assert emission.emissions_gco2e == pytest.approx(400 * 2.93 + 50 * 27.7)
     assert emission.ademe_id == "TER,TGV"
+
+
+@pytest.mark.parametrize("country", ["85", "80", "88", "82", "83", "71"])
+def test_stations_off_the_road_map_cannot_start_or_end_a_trip(country):
+    # Every foreign country in the SNCF graph; the road map is France-only.
+    french, foreign = "87765008", f"{country}014001"
+    graph = nx.Graph()
+    graph.add_node(french, name="FR", lat=43.94, lon=4.81)
+    graph.add_node(foreign, name="X", lat=46.32, lon=6.96)
+    graph.add_edge(french, foreign, distance_km=400, duration_seconds=14400)
+    engine = MultimodalRoutingEngine(matcher=None, rail_graph=graph)
+    assert engine._rail_nodes == {french}
+    # Trains may still cross the border.
+    assert engine.get_rail_segment(french, foreign).distance_km == 400

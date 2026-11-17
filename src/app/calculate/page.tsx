@@ -223,11 +223,11 @@ export default function CalculatePage() {
         setRouteInfo(routes[0]);
         setRouteSteps(routes[0]?.steps || []);
       } catch (error) {
-        console.error("Une erreur s'est produite lors du calcul de l'itinéraire :", error);
+        console.error("Route calculation failed:", error);
         setRouteError(
           error instanceof Error
             ? error.message
-            : "Le backend de routage est indisponible.",
+            : "The routing backend is unavailable.",
         );
       } finally {
         setLoading(false);
@@ -453,7 +453,7 @@ export default function CalculatePage() {
                       <li key={idx} className={styles.stepItem}>
                         <span className={styles.stepMode}>{getModeIcon('car')}</span>
                         <span className={styles.stepDesc}>{step.description}{step.name ? ` (${step.name})` : ''}</span>
-                        {step.duration && (
+                        {step.duration != null && (
                           <span className={styles.stepDuration}>{formatDuration(step.duration)}</span>
                         )}
                         {step.co2 !== undefined && (
@@ -469,7 +469,7 @@ export default function CalculatePage() {
                 <li key={idx} className={styles.stepItem}>
                   <span className={styles.stepMode}>{getModeIcon(step.mode)} {capitalize(step.mode)}</span>
                   <span className={styles.stepDesc}>{step.description}</span>
-                  {step.duration && (
+                  {step.duration != null && (
                     <span className={styles.stepDuration}>{formatDuration(step.duration)}</span>
                   )}
                   {step.co2 !== undefined && (

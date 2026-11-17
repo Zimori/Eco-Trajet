@@ -23,6 +23,7 @@ describe('Header', () => {
     expect(screen.getByText(/Try our calculations/i)).toBeInTheDocument();
     expect(screen.getByText(/Why It Matters/i)).toBeInTheDocument();
     expect(screen.getByText(/About Us/i)).toBeInTheDocument();
-    expect(screen.getByText(/Sign In/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Sign In/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /page styles/i })).toBeInTheDocument();
   });
 });

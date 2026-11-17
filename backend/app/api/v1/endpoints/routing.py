@@ -268,6 +268,8 @@ def _to_response(
         station_km = result.origin_station_distance_km + result.destination_station_distance_km
         reliability = max(0.0, 1.0 - station_km / 60.0)
     reliability = round(reliability, 3)
+    # A point at the station gives a 0 m road leg; keep one segment so the trip is never empty.
+    segments = [item for item in segments if item.distance_m > 0] or segments[:1]
     return ItineraryResponse(
         segments=segments,
         totals=CarbonMetrics(

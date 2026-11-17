@@ -50,8 +50,9 @@ def _write_stations(path: Path, extra=()) -> None:
 
 
 class OsrmRecorder:
-    def __init__(self, status_code: int = 200) -> None:
+    def __init__(self, status_code: int = 200, snap_m: float = 0.0) -> None:
         self.status_code = status_code
+        self.snap_m = snap_m
         self.urls: list[httpx.URL] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -69,7 +70,8 @@ class OsrmRecorder:
                         "duration": 600.0,
                         "geometry": {"type": "LineString", "coordinates": coordinates},
                     }
-                ]
+                ],
+                "waypoints": [{"distance": 0.0}, {"distance": self.snap_m}],
             },
         )
 
@@ -167,6 +169,14 @@ def test_long_trip_outside_france_falls_back_to_road(tmp_path):
     assert [s["mode"] for s in response.json()["segments"]] == ["car"]
     assert response.json()["metadata"]["rail_unavailable_reason"] == "outside_rail_coverage"
     assert len(osrm.urls) == 1
+
+
+def test_point_off_the_road_map_is_rejected_not_snapped(tmp_path):
+    # The France-only OSRM snaps Berlin ~540 km to the border instead of failing.
+    _, client = _build(tmp_path, OsrmRecorder(snap_m=539_374.0))
+    response = client.post("/api/v1/routing/multimodal", json=_body(PARIS, (52.52, 13.405)))
+    assert response.status_code == 422
+    assert "539 km" in response.json()["detail"]
 
 
 def test_ademe_factor_unit_conversion_and_ambiguity(tmp_path):

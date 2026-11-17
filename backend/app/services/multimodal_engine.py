@@ -14,6 +14,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .entity_matcher import EmissionEntityMatcher, InvalidCoordinatesError
 
+# Max distance OSRM may move a point to reach a road; above it the point is off the map.
+MAX_ROAD_SNAP_M = 5_000.0
+# UIC country codes covered by the OSRM map (87 = France). Near a border, foreign
+# stations can pass the snap check (Genève is 3 km from a French road), so filter them.
+ROAD_MAP_UIC_COUNTRIES = ("87",)
+
 
 class RoutingError(RuntimeError):
     """Base exception for routing failures."""
@@ -151,8 +157,13 @@ class MultimodalRoutingEngine:
         self.rail_vehicle_type = rail_vehicle_type
         self.station_candidates = station_candidates
         self.max_rail_detour_ratio = max_rail_detour_ratio
-        # Only stations that exist in the rail graph can start or end a rail leg.
-        self._rail_nodes = frozenset(str(node) for node in rail_graph.nodes)
+        # Stations that can start or end a rail leg: in the rail graph and on the road map.
+        # The train itself may still cross a border.
+        self._rail_nodes = frozenset(
+            str(node)
+            for node in rail_graph.nodes
+            if str(node).startswith(ROAD_MAP_UIC_COUNTRIES)
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -185,8 +196,16 @@ class MultimodalRoutingEngine:
                 raise ValueError("OSRM returned an empty or invalid GeoJSON geometry.")
             if distance_m < 0 or duration_s < 0:
                 raise ValueError("OSRM returned negative distance or duration.")
+            snaps_m = [float(w["distance"]) for w in payload.get("waypoints", [])]
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise RoadRoutingError("OSRM returned an invalid route payload.") from exc
+        # A point far from any road is outside the OSRM map (France-only extract):
+        # OSRM would silently snap it to the nearest French road.
+        if any(snap > MAX_ROAD_SNAP_M for snap in snaps_m):
+            raise ItineraryInputError(
+                f"A point is {max(snaps_m) / 1000:.0f} km from the nearest road "
+                "in the routing map, which covers France only."
+            )
         return RoadSegment(
             mode=mode,
             distance_km=distance_m / 1000.0,
