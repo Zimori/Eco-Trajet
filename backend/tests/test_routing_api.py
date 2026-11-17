@@ -1,7 +1,14 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.v1.endpoints.routing import _to_response
 from app.main import _degraded_app, app, create_app
+from app.services.multimodal_engine import (
+    EmissionBreakdown,
+    ItineraryResult,
+    RailSegment,
+    RoadSegment,
+)
 
 
 def test_health_is_degraded_when_datasets_are_missing(tmp_path, monkeypatch):
@@ -45,3 +52,37 @@ def test_cors_rejects_unlisted_origin():
         headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST"},
     )
     assert "access-control-allow-origin" not in response.headers
+
+
+def test_zero_length_road_leg_is_dropped():
+    def road(km):
+        return RoadSegment(mode="car", distance_km=km, duration_minutes=km, geometry={})
+
+    def co2(mode, km):
+        return EmissionBreakdown(
+            mode=mode, distance_km=km, factor_gco2e_km_passenger=1, emissions_gco2e=km
+        )
+
+    rail = RailSegment(
+        station_origin_uic="1", station_dest_uic="2", distance_km=200, duration_minutes=60, steps=[]
+    )
+    result = ItineraryResult(
+        origin=(0, 0),
+        destination=(1, 1),
+        access=road(5),
+        rail=rail,
+        egress=road(0),
+        emissions=[co2("car", 5), co2("train", 200), co2("car", 0)],
+        total_distance_km=205,
+        total_emissions_gco2e=205,
+        origin_station_distance_km=1,
+        destination_station_distance_km=0,
+    )
+    response = _to_response(result, "test", 1.0)
+    assert [s.mode for s in response.segments] == ["car", "train"]
+    assert response.totals.distance_totale == 205_000
+
+    same_point = result.model_copy(
+        update={"access": road(0), "rail": None, "egress": None, "emissions": [co2("car", 0)]}
+    )
+    assert [s.mode for s in _to_response(same_point, "test", 1.0).segments] == ["car"]
