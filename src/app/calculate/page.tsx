@@ -453,7 +453,7 @@ export default function CalculatePage() {
                       <li key={idx} className={styles.stepItem}>
                         <span className={styles.stepMode}>{getModeIcon('car')}</span>
                         <span className={styles.stepDesc}>{step.description}{step.name ? ` (${step.name})` : ''}</span>
-                        {step.duration && (
+                        {step.duration != null && (
                           <span className={styles.stepDuration}>{formatDuration(step.duration)}</span>
                         )}
                         {step.co2 !== undefined && (
@@ -469,7 +469,7 @@ export default function CalculatePage() {
                 <li key={idx} className={styles.stepItem}>
                   <span className={styles.stepMode}>{getModeIcon(step.mode)} {capitalize(step.mode)}</span>
                   <span className={styles.stepDesc}>{step.description}</span>
-                  {step.duration && (
+                  {step.duration != null && (
                     <span className={styles.stepDuration}>{formatDuration(step.duration)}</span>
                   )}
                   {step.co2 !== undefined && (
