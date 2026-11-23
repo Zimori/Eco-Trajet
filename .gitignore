@@ -65,3 +65,6 @@ cypress/screenshots
 # Private audit notes
 AUDIT_ISSUES.md
 notes/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
